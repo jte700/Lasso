@@ -1,5 +1,5 @@
 // A folder's review: the files someone edited since it was last approved,
-// and the files someone has asked to be changed, as The Ranch's review card
+// and the files someone has asked to be changed, as The Loop's review card
 // shows them. Loading a folder puts nothing up for review, and neither does a
 // capture of many files at once (a folder copied in or taken away, a sync, a
 // checkout): an edit is a save that changed a file that was already there.
@@ -13,7 +13,7 @@
 // changed. Comments sit beside the line, cell or passage they are pinned to.
 
 import { isCodeType, isTextualType } from '../history/file-types.js';
-import { MAX_FILES_PER_EVENT } from '../ranch/history.js';
+import { MAX_FILES_PER_EVENT } from '../loop/history.js';
 import { cellAddress, cellValue, sheetDiff, sheetGrids } from './sheet-diff.js';
 import { MAX_COMPARED_TEXT, MAX_SHOWN_LINES, findLine, lineDiff, linesOf } from './text-diff.js';
 import { valueChanges } from './value-diff.js';

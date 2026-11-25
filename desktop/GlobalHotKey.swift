@@ -1,4 +1,4 @@
-// A shortcut that works in every app, such as ⇧⌘R for The Ranch. Carbon's
+// A shortcut that works in every app, such as ⇧⌘R for The Loop. Carbon's
 // hot keys need no Accessibility or Input Monitoring permission; while Lasso
 // holds the keys, the app in front never sees them.
 

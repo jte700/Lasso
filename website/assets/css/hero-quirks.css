@@ -1,4 +1,4 @@
-/* The mascot heroes on Security, Benchmarks and The Ranch, centred like the home page's,
+/* The mascot heroes on Security, Benchmarks and The Loop, centred like the home page's,
    each with a quirk of its own: files that stay inside a ring, a stopwatch that times a
    real prompt, and a herd wandering a paddock. hero-quirks.js runs the moving parts. */
 
@@ -62,7 +62,7 @@
 @keyframes clock-blink { 50% { opacity: 0; } }
 @property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
 
-/* The Ranch: the herd wanders a fenced paddock; click one and it hops. */
+/* The Loop: the herd wanders a fenced paddock; click one and it hops. */
 .paddock { position: relative; width: min(100%, 560px); height: clamp(150px, 19vw, 196px); margin: 0 0 4px; }
 .paddock::before { content: ""; position: absolute; left: 50%; bottom: -10%; width: 70%; aspect-ratio: 2; translate: -50% 0; z-index: -1; border-radius: 50%; pointer-events: none;
   background: radial-gradient(closest-side, color-mix(in srgb, var(--sky) 22%, transparent), transparent); }

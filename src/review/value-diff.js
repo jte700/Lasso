@@ -5,9 +5,9 @@
 // reads after the last. A passage reworded in one save and again in the next
 // is one change, from its first words to its last.
 
-import { compareOrder, placeOf, readingOrder } from '../ranch/change-detail.js';
-import { FORMULA_CELL } from '../ranch/history.js';
-import { shownCell } from '../ranch/sheets.js';
+import { compareOrder, placeOf, readingOrder } from '../loop/change-detail.js';
+import { FORMULA_CELL } from '../loop/history.js';
+import { shownCell } from '../loop/sheets.js';
 
 export const MAX_VALUES = 200;
 const MAX_TEXT = 2000;

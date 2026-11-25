@@ -289,7 +289,7 @@ test('a linked line follows its line number through edits, and code is never sha
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ objectId: line.id, versionId: line.versionId, actor, accessScope: 'DOCUMENT' }) });
   const inspector = await fetch(`${base}/inspect?object=${line.id}&version=${line.versionId}&reference=r1`);
-  const ranch = app.ranch.overview().sources.find((source) => source.path === 'src/server.js');
+  const loop = app.loop.overview().sources.find((source) => source.path === 'src/server.js');
   fs.writeFileSync(path.join(root, 'src', 'server.js'), `// Entry point\n${SERVER}`);
   app.timeline.capture(projectId, actor);
   const after = app.dependencies.objectsAt(projectId).find((object) => object.objectKey === line.objectKey);
@@ -302,8 +302,8 @@ test('a linked line follows its line number through edits, and code is never sha
   assert.equal(shared.status, 422);
   assert.equal(inspector.headers.get('x-lasso-shareable'), '0');
   assert.doesNotMatch(await inspector.text(), /data-action="share"/);
-  assert.equal(ranch.shareable, false);
-  assert.throws(() => app.ranch.shareTarget({ directoryId: projectId, path: 'src/server.js' }), /code files/);
+  assert.equal(loop.shareable, false);
+  assert.throws(() => app.loop.shareTarget({ directoryId: projectId, path: 'src/server.js' }), /code files/);
   assert.equal(after.valueText, 'export function start(port) {\n  const server = http.createServer(handle);',
     'a later reading of the file records the same lines again');
 });

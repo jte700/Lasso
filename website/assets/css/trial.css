@@ -390,8 +390,8 @@ kbd { background: var(--raise); box-shadow: inset 0 0 0 1px var(--line), 0 1px 0
 .avc-card { display: block; width: 100%; height: auto; margin-top: calc(-12 / 760 * 100%); }
 .avc-said { color: var(--ink-2); }
 
-.art-ranch { width: min(100%, 420px); border-radius: 14px; overflow: hidden; background: var(--bg); box-shadow: 0 0 0 1px var(--line), 0 24px 50px -30px rgb(0 0 0 / .7); }
-:root[data-theme="light"] .art-ranch { background: var(--panel); }
+.art-loop { width: min(100%, 420px); border-radius: 14px; overflow: hidden; background: var(--bg); box-shadow: 0 0 0 1px var(--line), 0 24px 50px -30px rgb(0 0 0 / .7); }
+:root[data-theme="light"] .art-loop { background: var(--panel); }
 .ar-bar { display: flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; box-shadow: inset 0 -1px 0 var(--line-2); font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .ar-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
 .ar-bar span { margin-left: auto; margin-right: auto; padding-right: 33px; }

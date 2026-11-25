@@ -1,0 +1,90 @@
+// The Loop's window. Like Settings, it gives Lasso a Dock icon and menu bar
+// while it is open, and Lasso goes back to the menu bar when it closes.
+
+import Cocoa
+import SwiftUI
+
+final class LoopWindowController: NSWindowController, NSWindowDelegate {
+    static let title = Loop.title
+    private static let autosaveName = "LassoLoop"
+
+    let store: LoopStore
+    var onClose: (() -> Void)?
+
+    var isVisible: Bool { window?.isVisible == true }
+
+    init(actions: LoopActions, store: LoopStore = LoopStore()) {
+        self.store = store
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1240, height: 780),
+                              styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                              backing: .buffered, defer: false)
+        // The title names the window in the Window menu and to VoiceOver; the
+        // sidebar shows it. The columns run to the top edge, under the window's
+        // buttons, and their headers move the window as a title bar would.
+        window.title = Self.title
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.backgroundColor = LoopTheme.nsSurface
+        window.isReleasedWhenClosed = false
+        window.minSize = NSSize(width: 860, height: 520)
+        window.tabbingMode = .disallowed
+        LoopGlass.prepare(window)
+        // The Loop is dark whatever the Mac is set to.
+        window.appearance = NSAppearance(named: .darkAqua)
+        super.init(window: window)
+        // Before the content: the window keeps the first undo manager anything
+        // asks it for, and SwiftUI asks while the content is set up.
+        window.delegate = self
+        let hosting = NSHostingController(rootView: LoopRootView(store: store, actions: actions))
+        // The window keeps the size people give it, not the content's ideal size.
+        hosting.sizingOptions = []
+        window.contentViewController = hosting
+        // The window opens with no field taking the keyboard, as Finder's do;
+        // left alone, AppKit would give it to the search field.
+        window.initialFirstResponder = hosting.view
+        window.setContentSize(NSSize(width: 1240, height: 780))
+        window.setFrameAutosaveName(Self.autosaveName)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    /// Opens the window, on `section` when given, reading the library afresh.
+    func show(section: LoopStore.Section? = nil, serverURL: URL?) {
+        store.serverURL = serverURL
+        if let section { store.section = section }
+        // Opened afresh, the window starts with its tour the first time, and
+        // after that with its Begin card once each time Lasso starts: after an
+        // update or a restart, not every time the window opens. Sent to a
+        // particular view, or already open, it goes straight there.
+        if section == nil, window?.isVisible != true {
+            store.tourStep = 0
+            store.stage = Self.openingStage(tourFinished: LoopTour.finished(), shownThisLaunch: Self.openedThisLaunch)
+            Self.openedThisLaunch = true
+        } else if section != nil {
+            store.stage = .home
+        }
+        if let window, !window.isVisible, !window.setFrameUsingName(Self.autosaveName) { window.center() }
+        store.startRefreshing()
+        NSApp.activate(ignoringOtherApps: true)
+        showWindow(nil)
+        window?.makeKeyAndOrderFront(nil)
+    }
+
+    /// Whether the window has opened since Lasso started.
+    private static var openedThisLaunch = false
+
+    /// Where a window opened afresh starts: the tour until it has been seen,
+    /// then the Begin card on the first opening after Lasso starts, then the library.
+    static func openingStage(tourFinished: Bool, shownThisLaunch: Bool) -> LoopStore.Stage {
+        guard tourFinished else { return .tour }
+        return shownThisLaunch ? .home : .welcome
+    }
+
+    func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? { store.undoManager }
+
+    func windowWillClose(_ notification: Notification) {
+        store.stopRefreshing()
+        onClose?()
+    }
+}

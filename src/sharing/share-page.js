@@ -108,7 +108,7 @@ function messagePage(title, heading, message, label) {
  */
 export function renderMenuBarHome() {
   return messagePage('Lasso', 'Lasso runs from the menu bar',
-    'Suggestions appear while you type in any app. Open The Ranch from the menu bar, or press Shift-Command-R, to see your sources.', '');
+    'Suggestions appear while you type in any app. Open The Loop from the menu bar, or press Shift-Command-R, to see your sources.', '');
 }
 
 /// Distinct wording per state, with no hint that other tokens exist.
@@ -214,8 +214,8 @@ function columnLetter(index) {
   return result;
 }
 
-// A source's type as The Ranch shows it: a white page with the type on a
-// band in the type's colour. The Ranch draws Office files with macOS's own
+// A source's type as The Loop shows it: a white page with the type on a
+// band in the type's colour. The Loop draws Office files with macOS's own
 // icons, which a page cannot show, so those take their app's colour here.
 const FILE_TYPE_COLOURS = [
   ['#107C41', ['xlsx', 'xlsm', 'xls', 'numbers']], ['#188038', ['csv', 'tsv']],
@@ -470,7 +470,7 @@ export function renderInspectorPanel(resolved, reference, preview, { shareable =
       markdownBlockHtml(block, { links: false, className: block.cited ? 'cited' : '' })).join('')}</div></div>`;
   } else if (preview?.kind === 'text') {
     previewLabel = preview.extracted ? 'Document text' : 'Source preview';
-    // Code is coloured as The Ranch and the suggestion card colour it.
+    // Code is coloured as The Loop and the suggestion card colour it.
     const coloured = preview.extracted ? null : highlightCodeLines(preview.lines.map((line) => line.value), source.filename);
     content = preview.extracted
       ? `<div class="preview-scroll source-document-text">${escapeHtml(preview.lines.map((line) => line.value).join('\n'))}</div>`

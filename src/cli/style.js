@@ -5,7 +5,7 @@
 
 const ESC = '\u001b[';
 
-/** The website's and The Ranch's colours (website/index.html, RanchLook.swift). */
+/** The website's and The Loop's colours (website/index.html, LoopLook.swift). */
 export const PALETTE = Object.freeze({
   // The site's blue (mylasso.ca's --pop) is the CLI's own colour: the wordmark, the box, the prompt and the mascot.
   accent: '#8ec5f4',

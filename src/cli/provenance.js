@@ -17,8 +17,8 @@ import { isWholeFile } from '../dependencies/file-reference.js';
 import { numericDescriptor } from '../dependencies/value-match.js';
 import { EVERYDAY_WORDS } from '../dependencies/everyday-words.js';
 import { extractDocxFullText, extractPdfFullText } from '../dependencies/document-extraction.js';
-import { changeDetail, compareOrder, placeOf } from '../ranch/change-detail.js';
-import { recentHistory, HISTORY_DAYS } from '../ranch/history.js';
+import { changeDetail, compareOrder, placeOf } from '../loop/change-detail.js';
+import { recentHistory, HISTORY_DAYS } from '../loop/history.js';
 import { parseSince } from '../terminal/parser.js';
 import { untilde } from './format.js';
 import { sha256File } from './disk-facts.js';
@@ -271,7 +271,7 @@ export class Provenance {
   // ── log ────────────────────────────────────────────────────────────────
 
   /**
-   * Recorded changes across folders, newest first: The Ranch's Recent
+   * Recorded changes across folders, newest first: The Loop's Recent
    * Changes (two weeks), narrowed by folder, file, person or time.
    */
   log({ folder = null, file = null, by = null, since = null, limit = 40 } = {}) {

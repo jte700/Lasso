@@ -4704,14 +4704,14 @@ do {
         @objc func about() {}
         @objc func settings() {}
         @objc func add() {}
-        @objc func ranch() {}
+        @objc func loop() {}
         @objc func help() {}
     }
     let menuTarget = MenuTarget()
     _ = NSApplication.shared
     MainMenu.install(MainMenu.Commands(target: menuTarget, about: #selector(MenuTarget.about),
         settings: #selector(MenuTarget.settings), addDirectories: #selector(MenuTarget.add),
-        openRanch: #selector(MenuTarget.ranch), help: #selector(MenuTarget.help)))
+        openLoop: #selector(MenuTarget.loop), help: #selector(MenuTarget.help)))
     let bar = NSApp.mainMenu
     check(bar?.items.map(\.title) == ["Lasso", "File", "Edit", "View", "Window", "Help"],
           "menu bar lists Lasso, File, Edit, View, Window and Help in order")
@@ -4740,13 +4740,13 @@ do {
     check(shortcut("Edit", "f")?.tag == Int(NSFindPanelAction.showFindPanel.rawValue), "Command-F opens Find")
     check(shortcut("Window", "m")?.action == #selector(NSWindow.performMiniaturize(_:)), "Command-M minimizes")
     check(shortcut("Help", "?")?.action == #selector(MenuTarget.help), "Command-? opens Lasso Help")
-    let ranch = shortcut("File", "r", [.command, .shift])
-    check(ranch?.action == #selector(MenuTarget.ranch) && ranch?.title == "Open The Ranch" && ranch?.isHidden == false,
-          "Shift-Command-R opens The Ranch, as the key held in every app")
-    let ranchAlias = shortcut("File", "r")
-    check(ranchAlias?.action == #selector(MenuTarget.ranch) && ranchAlias?.isHidden == true
-          && ranchAlias?.allowsKeyEquivalentWhenHidden == true,
-          "plain Command-R still opens The Ranch inside Lasso, without a second menu row")
+    let loop = shortcut("File", "r", [.command, .shift])
+    check(loop?.action == #selector(MenuTarget.loop) && loop?.title == "Open The Loop" && loop?.isHidden == false,
+          "Shift-Command-R opens The Loop, as the key held in every app")
+    let loopAlias = shortcut("File", "r")
+    check(loopAlias?.action == #selector(MenuTarget.loop) && loopAlias?.isHidden == true
+          && loopAlias?.allowsKeyEquivalentWhenHidden == true,
+          "plain Command-R still opens The Loop inside Lasso, without a second menu row")
     check(!(bar?.items ?? []).flatMap({ $0.submenu?.items ?? [] }).contains { $0.title.localizedCaseInsensitiveContains("browser") },
           "nothing in the menu bar sends you to the browser")
     check(NSApp.windowsMenu?.title == "Window" && NSApp.helpMenu?.title == "Help",
@@ -5016,7 +5016,7 @@ do {
     check(mac.first?.title == "Lasso" && keys.contains("⌘,") && keys.contains("⌘L"),
           "the shipped list starts with Lasso's own commands, including ⌘L")
     check(mac.first?.rows.filter { $0.keys == "⇧⌘R" }.count == 1 && keys.filter { $0 == "⇧⌘R" }.count == 1,
-          "⇧⌘R is listed once, for The Ranch, since Lasso holds it in every app")
+          "⇧⌘R is listed once, for The Loop, since Lasso holds it in every app")
     check(keys.contains("⇥") && keys.contains("⌘↩") && keys.contains("⇧⌘↩") && keys.contains("fn ←"),
           "the shipped list names every key the suggestion card answers to")
     check(!keys.contains("F4") && !keys.contains { $0.contains("Ctrl") },
@@ -5191,7 +5191,7 @@ do {
     check(notes.textBlocks.allSatisfy { $0.codeTokens.isEmpty }, "prose lines are not coloured")
 }
 
-// MARK: The Ranch
+// MARK: The Loop
 
 do {
     func source(_ id: String, _ directory: String, _ name: String, modified: String?, created: String?,
@@ -5239,36 +5239,51 @@ do {
                            {"from": "a", "to": "b", "kind": "link", "weight": 2,
                             "reasons": [{"from": "b", "text": "18,400"}, {"from": "b", "text": null}]}]}}
     """
-    let overview = try? RanchOverview.decode(Data(json.utf8))
+    let overview = try? LoopOverview.decode(Data(json.utf8))
     check(overview?.sources.count == 4 && overview?.history.last?.fileCount == 2
           && overview?.links.outgoing.first?.expiresAt != nil && overview?.sources[2].modifiedAt == nil,
-          "The Ranch decodes the server's overview, with and without fractional seconds, and its nulls")
+          "The Loop decodes the server's overview, with and without fractional seconds, and its nulls")
     if let overview {
-        let names = { (directories: [RanchDirectory]) in directories.map(\.name) }
-        check(names(RanchOrder.lastEdited.sorted(overview.directories)) == ["Models", "Finance", "Outlook"],
+        let names = { (directories: [LoopDirectory]) in directories.map(\.name) }
+        check(names(LoopOrder.lastEdited.sorted(overview.directories)) == ["Models", "Finance", "Outlook"],
               "directories ordered by last edit put the latest first and undated ones last")
-        check(names(RanchOrder.recentlyUsed.sorted(overview.directories)) == ["Models", "Finance", "Outlook"],
+        check(names(LoopOrder.recentlyUsed.sorted(overview.directories)) == ["Models", "Finance", "Outlook"],
               "never-used directories go after used ones, by name")
-        check(names(RanchOrder.oldest.sorted(overview.directories)) == ["Finance", "Models", "Outlook"]
-              && names(RanchOrder.newest.sorted(overview.directories)) == ["Outlook", "Models", "Finance"],
+        check(names(LoopOrder.oldest.sorted(overview.directories)) == ["Finance", "Models", "Outlook"]
+              && names(LoopOrder.newest.sorted(overview.directories)) == ["Outlook", "Models", "Finance"],
               "oldest and newest order directories by when they were made, or added when that is unknown")
-        let files = { (sources: [RanchSource]) in sources.map(\.id) }
-        check(files(RanchOrder.lastEdited.sorted(overview.sources)) == ["b", "a", "d", "c"]
-              && files(RanchOrder.recentlyUsed.sorted(overview.sources)) == ["b", "c", "a", "d"]
-              && files(RanchOrder.oldest.sorted(overview.sources)) == ["b", "a", "d", "c"],
+        let files = { (sources: [LoopSource]) in sources.map(\.id) }
+        check(files(LoopOrder.lastEdited.sorted(overview.sources)) == ["b", "a", "d", "c"]
+              && files(LoopOrder.recentlyUsed.sorted(overview.sources)) == ["b", "c", "a", "d"]
+              && files(LoopOrder.oldest.sorted(overview.sources)) == ["b", "a", "d", "c"],
               "files sort by their own order, separately from directories")
         check(overview.sources[0].folder == "Reports" && overview.sources[2].fileExtension == "step",
               "a file knows its folder and extension")
-        check(overview.sources[0].counts.summary == "Tabbed once \u{00B7} Viewed twice" && RanchCounts.none.summary == "Not used yet",
+        check(overview.sources[0].counts.summary == "Tabbed once \u{00B7} Viewed twice" && LoopCounts.none.summary == "Not used yet",
               "use is summarised in words, leaving out what never happened")
 
         let defaults = MemoryDirectoryDefaults()
-        defaults.set(RanchOrder.oldest.rawValue, forKey: RanchOrder.directoryKey)
-        check(RanchOrder.saved(RanchOrder.directoryKey, defaults: defaults) == .oldest
-              && RanchOrder.saved(RanchOrder.itemKey, defaults: defaults) == .lastEdited,
+        defaults.set(LoopOrder.oldest.rawValue, forKey: LoopOrder.directoryKey)
+        check(LoopOrder.saved(LoopOrder.directoryKey, defaults: defaults) == .oldest
+              && LoopOrder.saved(LoopOrder.itemKey, defaults: defaults) == .lastEdited,
               "directory and file orders are remembered under separate keys")
 
-        let layout = RanchNetworkLayout.make(overview)
+        let renameSuite = "LassoLoopRenameCheck-\(UUID().uuidString)"
+        let renamed = UserDefaults(suiteName: renameSuite)!
+        renamed.set(true, forKey: "RanchTourFinished")
+        renamed.set(312.0, forKey: "RanchSidebarWidth")
+        renamed.set("oldest", forKey: "RanchItemOrder")
+        renamed.set("lastEdited", forKey: "LoopItemOrder")
+        LoopRename.carryOver(renamed)
+        check(renamed.bool(forKey: "LoopTourFinished") && renamed.double(forKey: "LoopSidebarWidth") == 312,
+              "choices saved while the window was The Ranch carry over to The Loop")
+        check(renamed.string(forKey: "LoopItemOrder") == "lastEdited",
+              "a choice already made in The Loop is kept over the old one")
+        check(renamed.object(forKey: "RanchTourFinished") == nil && renamed.object(forKey: "RanchItemOrder") == nil,
+              "the old keys are removed once carried over")
+        renamed.removePersistentDomain(forName: renameSuite)
+
+        let layout = LoopNetworkLayout.make(overview)
         let fileIDs = Set(layout.nodes.filter { $0.role == .file }.map(\.id))
         check(fileIDs == ["a", "b", "c"] && !layout.isStarter,
               "the network draws used and connected files, not unused loners")
@@ -5277,7 +5292,7 @@ do {
         check(layout.lines.contains { $0.kind == "mention" && $0.crossesDirectories }
               && layout.lines.contains { $0.kind == "link" && !$0.crossesDirectories },
               "lines say whether they cross directories")
-        check(layout == RanchNetworkLayout.make(overview), "the same library always lays out the same way")
+        check(layout == LoopNetworkLayout.make(overview), "the same library always lays out the same way")
         let at = { (id: String) in layout.index(of: id)! }
         let joined = layout.connections(of: at("a"))
         check(joined.map { layout.nodes[$0.other].label } == ["Actuals.xlsx", "Bracket.step"],
@@ -5293,18 +5308,18 @@ do {
               && layout.whereConnected(at("a"), at("b")) == "Within Finance",
               "a connection says whether it stays in one directory")
         check(layout.connections(of: layout.index(of: "hub:d1")!).isEmpty, "a hub lists no file connections")
-        let named = RanchNetworkLine(from: at("a"), to: at("c"), kind: "mention", weight: 1, crossesDirectories: true,
-                                     reasons: [RanchEdgeReason(from: "c", text: "budget.xlsx")])
-        let shared = RanchNetworkLine(from: at("a"), to: at("c"), kind: "same-name", weight: 1, crossesDirectories: true,
-                                      reasons: [RanchEdgeReason(from: nil, text: "bracket")])
-        check(RanchConnectionWords.sentences(for: named, nodes: layout.nodes) == ["Bracket.step names Budget.xlsx"]
-              && RanchConnectionWords.sentences(for: shared, nodes: layout.nodes)
+        let named = LoopNetworkLine(from: at("a"), to: at("c"), kind: "mention", weight: 1, crossesDirectories: true,
+                                     reasons: [LoopEdgeReason(from: "c", text: "budget.xlsx")])
+        let shared = LoopNetworkLine(from: at("a"), to: at("c"), kind: "same-name", weight: 1, crossesDirectories: true,
+                                      reasons: [LoopEdgeReason(from: nil, text: "bracket")])
+        check(LoopConnectionWords.sentences(for: named, nodes: layout.nodes) == ["Bracket.step names Budget.xlsx"]
+              && LoopConnectionWords.sentences(for: shared, nodes: layout.nodes)
                 == ["Both are named \u{201C}bracket\u{201D}, likely one thing in two forms"],
               "a mention names the file by its own name, and a shared name is quoted")
 
         // The sources page's overview, counted from the same library.
         let today = ISO8601DateFormatter().date(from: "2026-10-23T12:00:00Z")!
-        let whole = RanchLibrarySummary(sources: overview.sources, history: overview.history,
+        let whole = LoopLibrarySummary(sources: overview.sources, history: overview.history,
                                         links: overview.links.outgoing, directoryId: nil, now: today)
         check(whole.total == 4 && whole.usedCount == 4 && whole.totalUses == 12 && overview.sources[0].counts.total == 3,
               "the overview adds up every way a file was used")
@@ -5314,25 +5329,25 @@ do {
               "a file edited in the last week counts as changed; a directory being added does not")
         check(whole.activeLinks == 1 && whole.allLinks == 1 && whole.expiringLinks == 1 && whole.driftedLinks == 0,
               "a working link that ends within a week is counted as expiring soon")
-        let models = RanchLibrarySummary(sources: overview.sources, history: overview.history,
+        let models = LoopLibrarySummary(sources: overview.sources, history: overview.history,
                                          links: overview.links.outgoing, directoryId: "d2", now: today)
         check(models.total == 2 && models.changedThisWeek == 0 && models.allLinks == 0 && models.top.map(\.id) == ["c", "d"],
               "one directory's overview counts only its own files, changes and links")
-        let later = RanchLibrarySummary(sources: overview.sources, history: overview.history,
+        let later = LoopLibrarySummary(sources: overview.sources, history: overview.history,
                                         links: overview.links.outgoing, directoryId: nil,
                                         now: today.addingTimeInterval(30 * 24 * 3600))
         check(later.changedThisWeek == 0, "a change more than a week old is no longer counted")
-        check(RanchUseFilter.used.keeps(overview.sources[0]) && !RanchUseFilter.shared.keeps(overview.sources[0])
-              && RanchUseFilter.all.keeps(overview.sources[0]),
+        check(LoopUseFilter.used.keeps(overview.sources[0]) && !LoopUseFilter.shared.keeps(overview.sources[0])
+              && LoopUseFilter.all.keeps(overview.sources[0]),
               "In use keeps files that were used, Shared those with a working link")
-        let busy = RanchLibrarySummary(sources: [], history: [], links: [], directoryId: nil)
+        let busy = LoopLibrarySummary(sources: [], history: [], links: [], directoryId: nil)
         check(busy.total == 0 && !busy.anyUsed && busy.top.isEmpty && busy.kinds.isEmpty,
               "an empty library has an empty overview")
-        check(RanchLibrarySummary.short(46) == "46" && RanchLibrarySummary.short(2140) == "2.1k"
-              && RanchLibrarySummary.short(18400) == "18k",
+        check(LoopLibrarySummary.short(46) == "46" && LoopLibrarySummary.short(2140) == "2.1k"
+              && LoopLibrarySummary.short(18400) == "18k",
               "a count too long for its circle is written in thousands")
         let box = CGSize(width: 260, height: 150)
-        let circles = RanchCirclePacking.pack([1412, 806, 482, 147], in: box)
+        let circles = LoopCirclePacking.pack([1412, 806, 482, 147], in: box)
         var apart = true
         for first in circles.indices {
             for second in circles.indices where second > first {
@@ -5345,18 +5360,18 @@ do {
         check(apart && inside, "the kinds' circles sit inside their card without touching")
         check(circles[0].d > circles[1].d && circles[1].d > circles[2].d && circles[2].d > circles[3].d,
               "a kind with more files gets a larger circle")
-        check(RanchCirclePacking.pack([0, 0], in: box).allSatisfy { $0.d == 0 }, "kinds with no files draw no circle")
-        let wide = RanchTableColumns(width: 900, showsDirectory: true)
-        let narrow = RanchTableColumns(width: 600, showsDirectory: true)
+        check(LoopCirclePacking.pack([0, 0], in: box).allSatisfy { $0.d == 0 }, "kinds with no files draw no circle")
+        let wide = LoopTableColumns(width: 900, showsDirectory: true)
+        let narrow = LoopTableColumns(width: 600, showsDirectory: true)
         check(wide.kind && wide.directory && wide.usage && narrow.kind && !narrow.directory && !narrow.usage
-              && !RanchTableColumns(width: 900, showsDirectory: false).directory,
+              && !LoopTableColumns(width: 900, showsDirectory: false).directory,
               "a narrow table drops its directory and usage columns, and one directory's table never names it")
-        var ticks = RanchDirectoryTicks()
+        var ticks = LoopDirectoryTicks()
         ticks.meet(overview.directories)
         check(ticks.count(overview.directories) == 3 && ticks.changes(overview.directories).isEmpty,
               "every directory Lasso reads starts ticked, and going on untouched changes nothing")
         ticks.toggle(overview.directories[0])
-        check(ticks.changes(overview.directories) == [RanchDirectoryChange(id: "d1", active: false)]
+        check(ticks.changes(overview.directories) == [LoopDirectoryChange(id: "d1", active: false)]
               && ticks.count(overview.directories) == 2,
               "unticking a directory pauses it when the person goes on")
         ticks.toggle(overview.directories[0])
@@ -5366,77 +5381,77 @@ do {
               "a connected app stays ticked; it is switched on and off where it was connected")
         let pausedJSON = json.replacingOccurrences(of: "\"name\": \"Finance\", \"rootPath\": \"/tmp/Finance\", \"kind\": \"folder\", \"symbol\": null, \"active\": true",
                                                    with: "\"name\": \"Finance\", \"rootPath\": \"/tmp/Finance\", \"kind\": \"folder\", \"symbol\": null, \"active\": false")
-        if let paused = try? RanchOverview.decode(Data(pausedJSON.utf8)), !paused.directories[0].active {
-            var resume = RanchDirectoryTicks()
+        if let paused = try? LoopOverview.decode(Data(pausedJSON.utf8)), !paused.directories[0].active {
+            var resume = LoopDirectoryTicks()
             resume.meet(paused.directories)
             check(!resume.isTicked(paused.directories[0]), "a paused directory starts unticked")
             resume.toggle(paused.directories[0])
-            check(resume.changes(paused.directories) == [RanchDirectoryChange(id: "d1", active: true)],
+            check(resume.changes(paused.directories) == [LoopDirectoryChange(id: "d1", active: true)],
                   "ticking a paused directory resumes it")
-            var later = RanchDirectoryTicks()
+            var later = LoopDirectoryTicks()
             later.meet(Array(overview.directories.prefix(1)))
             later.toggle(overview.directories[0])
             later.meet(overview.directories)
-            check(later.changes(overview.directories) == [RanchDirectoryChange(id: "d1", active: false)]
+            check(later.changes(overview.directories) == [LoopDirectoryChange(id: "d1", active: false)]
                   && later.isTicked(overview.directories[1]),
                   "a directory added during the step comes in ticked and keeps the ticks already changed")
         } else {
             check(false, "a paused directory decodes")
         }
-        let early = RanchDemoTime(t: 1, loop: 10)
-        let late = RanchDemoTime(t: 9.9, loop: 10)
+        let early = LoopDemoTime(t: 1, loop: 10)
+        let late = LoopDemoTime(t: 9.9, loop: 10)
         check(early.ramp(0, 2, curve: .linear) == 0.5 && early.ramp(2, 3) == 0 && early.ramp(0, 0.5) == 1
               && early.ramp(0, 2) == 0.5,
               "a demo's ramps run from 0 to 1 across their span and hold outside it")
-        check(RanchDemoTime(t: 0.9, loop: 10).ramp(0, 1, curve: .back) > 1 && RanchDemoTime(t: 1, loop: 10).ramp(0, 1, curve: .back) == 1,
+        check(LoopDemoTime(t: 0.9, loop: 10).ramp(0, 1, curve: .back) > 1 && LoopDemoTime(t: 1, loop: 10).ramp(0, 1, curve: .back) == 1,
               "a pop overshoots a little and settles where it belongs")
-        check([RanchDemoTime.Curve.linear, .smooth, .out, .back].allSatisfy {
-                  RanchDemoTime(t: 0.5, loop: 10).ramp(1, 2, curve: $0) == 0 && RanchDemoTime(t: 1, loop: 10).ramp(1, 2, curve: $0) == 0
+        check([LoopDemoTime.Curve.linear, .smooth, .out, .back].allSatisfy {
+                  LoopDemoTime(t: 0.5, loop: 10).ramp(1, 2, curve: $0) == 0 && LoopDemoTime(t: 1, loop: 10).ramp(1, 2, curve: $0) == 0
               },
               "nothing has begun before its moment, whatever its curve")
-        check(early.span(0.5, 3) == 1 && RanchDemoTime(t: 3.5, loop: 10).span(0.5, 3) == 0
-              && early.press(1, length: 0.16) == 0 && RanchDemoTime(t: 1.08, loop: 10).press(1) == 1,
+        check(early.span(0.5, 3) == 1 && LoopDemoTime(t: 3.5, loop: 10).span(0.5, 3) == 0
+              && early.press(1, length: 0.16) == 0 && LoopDemoTime(t: 1.08, loop: 10).press(1) == 1,
               "something shown for a span is gone after it, and a press is down only for its moment")
-        check(early.fade == 1 && late.fade < 0.5 && RanchDemoTime(t: 0, loop: 10).fade == 0,
+        check(early.fade == 1 && late.fade < 0.5 && LoopDemoTime(t: 0, loop: 10).fade == 0,
               "a demo fades in as its loop starts and out before it starts again")
-        let path = RanchDemoPath(keys: [(0, CGPoint(x: 0, y: 0)), (1, CGPoint(x: 0, y: 0)), (3, CGPoint(x: 100, y: 50))])
-        check(path.point(RanchDemoTime(t: 0.5, loop: 10)) == .zero && path.point(RanchDemoTime(t: 2, loop: 10)) == CGPoint(x: 50, y: 25)
-              && path.point(RanchDemoTime(t: 5, loop: 10)) == CGPoint(x: 100, y: 50),
+        let path = LoopDemoPath(keys: [(0, CGPoint(x: 0, y: 0)), (1, CGPoint(x: 0, y: 0)), (3, CGPoint(x: 100, y: 50))])
+        check(path.point(LoopDemoTime(t: 0.5, loop: 10)) == .zero && path.point(LoopDemoTime(t: 2, loop: 10)) == CGPoint(x: 50, y: 25)
+              && path.point(LoopDemoTime(t: 5, loop: 10)) == CGPoint(x: 100, y: 50),
               "a demo's pointer holds at each stop and glides between them")
-        check(abs(RanchPullPhysics.rubber(100) - 55) < 1e-9 && abs(RanchPullPhysics.rubber(180) - 99) < 1e-9
-              && RanchPullPhysics.rubber(-20) == 0
-              && RanchPullPhysics.rubber(160) >= RanchPullPhysics.threshold,
+        check(abs(LoopPullPhysics.rubber(100) - 55) < 1e-9 && abs(LoopPullPhysics.rubber(180) - 99) < 1e-9
+              && LoopPullPhysics.rubber(-20) == 0
+              && LoopPullPhysics.rubber(160) >= LoopPullPhysics.threshold,
               "a pull moves the page half as far at first, so the refresh point is easy to reach")
-        check(RanchPullPhysics.rubber(2000) < 159 && RanchPullPhysics.rubber(2000) > RanchPullPhysics.rubber(400),
+        check(LoopPullPhysics.rubber(2000) < 159 && LoopPullPhysics.rubber(2000) > LoopPullPhysics.rubber(400),
               "past that the page resists more and more, and never goes further than about 159 points")
-        var back = RanchSpring(RanchPullPhysics.threshold, RanchPullPhysics.back.k, RanchPullPhysics.back.c)
+        var back = LoopSpring(LoopPullPhysics.threshold, LoopPullPhysics.back.k, LoopPullPhysics.back.c)
         back.t = 0
         var lowest = back.x
         for _ in 0..<(60 * 4 * 2) { back.step(1.0 / 240); lowest = min(lowest, back.x) }
         check(lowest < 0 && lowest > -12 && back.settled,
               "let go, the page springs home with one small overshoot and settles")
-        var held = RanchSpring(0, RanchPullPhysics.follow.k, RanchPullPhysics.follow.c)
+        var held = LoopSpring(0, LoopPullPhysics.follow.k, LoopPullPhysics.follow.c)
         held.t = 40
         var highest = held.x
         for _ in 0..<(60 * 4) { held.step(1.0 / 240); highest = max(highest, held.x) }
         check(highest <= 40.6 && held.settled, "while pulled, the page follows closely, overshooting by no more than a hair")
-        var calm = RanchSpring(0, 0, 0)
-        calm.tune(RanchPullPhysics.back, reduce: true)
-        check(calm.c == 2 * RanchPullPhysics.back.k.squareRoot(), "with Reduce Motion the springs are critically damped")
-        check(RanchShareWay.allCases.allSatisfy { $0.unavailable(for: "Lease.pdf") == nil },
+        var calm = LoopSpring(0, 0, 0)
+        calm.tune(LoopPullPhysics.back, reduce: true)
+        check(calm.c == 2 * LoopPullPhysics.back.k.squareRoot(), "with Reduce Motion the springs are critically damped")
+        check(LoopShareWay.allCases.allSatisfy { $0.unavailable(for: "Lease.pdf") == nil },
               "a PDF can be shared whole, redacted or marked up")
-        check(RanchShareWay.whole.unavailable(for: "deck-loads.xlsx") == nil
-              && RanchShareWay.redacted.unavailable(for: "deck-loads.xlsx") == nil
-              && RanchShareWay.marked.unavailable(for: "deck-loads.xlsx") != nil,
+        check(LoopShareWay.whole.unavailable(for: "deck-loads.xlsx") == nil
+              && LoopShareWay.redacted.unavailable(for: "deck-loads.xlsx") == nil
+              && LoopShareWay.marked.unavailable(for: "deck-loads.xlsx") != nil,
               "a spreadsheet can be shared whole or redacted, but not marked up, and says why")
-        check(RanchShareWay.whole.unavailable(for: "site.mp4") == nil && RanchShareWay.redacted.unavailable(for: "site.mp4") != nil,
+        check(LoopShareWay.whole.unavailable(for: "site.mp4") == nil && LoopShareWay.redacted.unavailable(for: "site.mp4") != nil,
               "a video is shared whole only")
-        check(RanchShareWay.whole.scope == .document && RanchShareWay.redacted.scope == .redacted && RanchShareWay.marked.scope == .marked,
+        check(LoopShareWay.whole.scope == .document && LoopShareWay.redacted.scope == .redacted && LoopShareWay.marked.scope == .marked,
               "each way of sharing makes the scope the server knows it by")
-        check(RanchShareAddress.valid("sam@harbor.co") && !RanchShareAddress.valid("sam@harbor")
-              && !RanchShareAddress.valid("sam harbor.co") && !RanchShareAddress.valid(""),
+        check(LoopShareAddress.valid("sam@harbor.co") && !LoopShareAddress.valid("sam@harbor")
+              && !LoopShareAddress.valid("sam harbor.co") && !LoopShareAddress.valid(""),
               "only what looks like an email address becomes a recipient")
-        var rows = RanchSpringRows(count: 3, row: 56, pad: 6)
+        var rows = LoopSpringRows(count: 3, row: 56, pad: 6)
         rows.hover(0)
         check(rows.highlight.top == 6 && rows.highlight.height == 56, "the highlight starts on its row at once, with no slide")
         for _ in 0..<72 { rows.step(1.0 / 240) }
@@ -5450,9 +5465,9 @@ do {
         rows.choose(1)
         check(rows.presses[1].x == 0.955 && rows.ticks[1].t == 1 && rows.ticks[0].t == 0,
               "choosing a row draws its check and gives it a little press")
-        check(RanchSpringRows.delay(0) == 0.05 && abs(RanchSpringRows.delay(2) - 0.14) < 1e-9,
+        check(LoopSpringRows.delay(0) == 0.05 && abs(LoopSpringRows.delay(2) - 0.14) < 1e-9,
               "rows fall in 45 milliseconds apart, as the component's stagger is")
-        typealias Chips = RanchChipSearch
+        typealias Chips = LoopChipSearch
         let recents = ["dashboards", "empty states", "pricing pages"]
         let terms = ["dashboards", "data tables", "dark mode", "empty states", "onboarding", "pricing pages"]
         check(Chips.rows(query: "", chips: ["onboarding"], recents: recents, suggestions: terms).map(\.label) == recents
@@ -5503,30 +5518,30 @@ do {
         let offered = Chips.suggestions(sources: overview.sources, directories: overview.directories)
         check(offered == ["Finance", "Models", "Outlook", "Spreadsheet", "Actuals.xlsx", "Budget.xlsx", "Plate.step", "Bracket.step"],
               "the terms offered are the directories, the kinds, then the files edited most lately")
-        check(RanchKindFilter.keeping("pdf") == .pdfs && RanchKindFilter.keeping("nothing") == nil
-              && RanchKindFilter.label(for: "spreadsheet") == "Spreadsheet" && RanchKindFilter.label(for: "mystery") == "File",
+        check(LoopKindFilter.keeping("pdf") == .pdfs && LoopKindFilter.keeping("nothing") == nil
+              && LoopKindFilter.label(for: "spreadsheet") == "Spreadsheet" && LoopKindFilter.label(for: "mystery") == "File",
               "a file's kind has a short label and a filter that keeps it")
         check(layout.nodes.allSatisfy { abs($0.position.x) <= 1 && abs($0.position.y) <= 1 },
               "every node stays inside the drawing")
-        let finance = RanchNetworkLayout.make(overview, directoryId: "d1")
+        let finance = LoopNetworkLayout.make(overview, directoryId: "d1")
         check(Set(finance.nodes.filter { $0.role == .file }.map(\.id)) == ["a", "b", "c"],
               "one directory's network keeps the files elsewhere it connects to")
-        check(RanchNetworkLayout.make(overview, maxFiles: 1).nodes.filter { $0.role == .file }.map(\.id) == ["a"],
+        check(LoopNetworkLayout.make(overview, maxFiles: 1).nodes.filter { $0.role == .file }.map(\.id) == ["a"],
               "past the limit, the busiest and best-connected files are kept")
-        let quiet = RanchOverview(generatedAt: nil, truncated: false, directories: overview.directories,
+        let quiet = LoopOverview(generatedAt: nil, truncated: false, directories: overview.directories,
                                   sources: overview.sources.map { source in
-                                      RanchSource(id: source.id, directoryId: source.directoryId, path: source.path, name: source.name,
+                                      LoopSource(id: source.id, directoryId: source.directoryId, path: source.path, name: source.name,
                                                   kind: source.kind, size: source.size, contentHash: source.contentHash,
                                                   modifiedAt: source.modifiedAt, createdAt: source.createdAt,
                                                   lastUsedAt: nil, counts: .none, activeShares: 0, activity: 0)
-                                  }, history: [], historyTruncated: false, links: RanchLinks(outgoing: [], received: []), review: [],
-                                  network: RanchNetworkData(edges: []))
-        let starter = RanchNetworkLayout.make(quiet)
+                                  }, history: [], historyTruncated: false, links: LoopLinks(outgoing: [], received: []), review: [],
+                                  network: LoopNetworkData(edges: []))
+        let starter = LoopNetworkLayout.make(quiet)
         check(starter.isStarter && starter.nodes.filter { $0.role == .file }.count == 4,
               "with nothing used or linked, recently edited files are drawn as a start")
         // A click that narrows the network, or the refresh after a visit, redraws
         // it under a resting pointer; the hovered node's old place may be gone.
-        let narrowed = RanchNetworkLayout.make(overview, maxFiles: 1)
+        let narrowed = LoopNetworkLayout.make(overview, maxFiles: 1)
         let lastPlace = starter.nodes.count - 1
         check(!narrowed.nodes.indices.contains(lastPlace) && narrowed.index(of: starter.nodes[lastPlace].id) == nil
               && starter.nodes.allSatisfy { node in narrowed.index(of: node.id).map { narrowed.nodes[$0].id == node.id } ?? true }
@@ -5535,17 +5550,17 @@ do {
               "a node in focus is found again by its id after the network is redrawn, not by where it was")
         check(layout.labelledFiles(limit: 1).count == 1, "only the busiest file labels are drawn")
 
-        let ordered = RanchOrder.lastEdited.sorted(overview.directories)
-        check(names(RanchPins.ordered(ordered, pinned: ["d1"])) == ["Finance", "Models", "Outlook"]
-              && names(RanchPins.ordered(ordered, pinned: ["d1", "d3"])) == ["Finance", "Outlook", "Models"]
-              && names(RanchPins.ordered(ordered, pinned: [])) == names(ordered),
+        let ordered = LoopOrder.lastEdited.sorted(overview.directories)
+        check(names(LoopPins.ordered(ordered, pinned: ["d1"])) == ["Finance", "Models", "Outlook"]
+              && names(LoopPins.ordered(ordered, pinned: ["d1", "d3"])) == ["Finance", "Outlook", "Models"]
+              && names(LoopPins.ordered(ordered, pinned: [])) == names(ordered),
               "pinned directories go first, in the chosen order among themselves, and the rest keep theirs")
         let pinDefaults = MemoryDirectoryDefaults(suiteName: nil)!
-        RanchPins.save(["d2", "d1"], defaults: pinDefaults)
-        check(RanchPins.saved(defaults: pinDefaults) == ["d1", "d2"] && RanchPins.saved(defaults: MemoryDirectoryDefaults(suiteName: nil)!).isEmpty,
+        LoopPins.save(["d2", "d1"], defaults: pinDefaults)
+        check(LoopPins.saved(defaults: pinDefaults) == ["d1", "d2"] && LoopPins.saved(defaults: MemoryDirectoryDefaults(suiteName: nil)!).isEmpty,
               "pins are remembered between launches, and none are pinned at first")
 
-        var trail = RanchNetworkTrail()
+        var trail = LoopNetworkTrail()
         check(!trail.canGoBack && trail.back() == nil, "the whole network has nothing to go back to")
         trail.leave(nil, for: "d1")
         trail.leave("d1", for: "d1")
@@ -5555,23 +5570,23 @@ do {
               "Back returns to the directory before, then to every directory")
         for index in 0..<60 { trail.leave("d\(index)", for: "d\(index + 1)") }
         check(trail.visited.count == 50 && trail.visited.last == "d59", "the trail keeps the latest fifty steps")
-        check(overview.sources.filter(RanchKindFilter.spreadsheets.includes).count == 4
-              && overview.sources.filter(RanchKindFilter.models.includes).isEmpty
-              && overview.sources.filter(RanchKindFilter.all.includes).count == 4
-              && Set(RanchKindFilter.allCases.map(\.title)).count == RanchKindFilter.allCases.count,
+        check(overview.sources.filter(LoopKindFilter.spreadsheets.includes).count == 4
+              && overview.sources.filter(LoopKindFilter.models.includes).isEmpty
+              && overview.sources.filter(LoopKindFilter.all.includes).count == 4
+              && Set(LoopKindFilter.allCases.map(\.title)).count == LoopKindFilter.allCases.count,
               "the kind filter keeps one kind of file, and All Kinds keeps every file")
     }
 
     // The sidebar's outline: folders before files, in name order, opened a level at a time.
     do {
-        func file(_ id: String, _ path: String) -> RanchSource {
-            RanchSource(id: id, directoryId: "d", path: path, name: (path as NSString).lastPathComponent, kind: "text", size: 1,
+        func file(_ id: String, _ path: String) -> LoopSource {
+            LoopSource(id: id, directoryId: "d", path: path, name: (path as NSString).lastPathComponent, kind: "text", size: 1,
                         contentHash: nil, modifiedAt: nil, createdAt: nil, lastUsedAt: nil, counts: .none, activeShares: 0,
                         activity: 0)
         }
-        let tree = RanchTree.make([file("1", "notes.md"), file("2", "transfer/b.csv"), file("3", "timecourse/run/a.csv"),
+        let tree = LoopTree.make([file("1", "notes.md"), file("2", "transfer/b.csv"), file("3", "timecourse/run/a.csv"),
                                    file("4", "transfer/a.csv"), file("5", "Archive/old.txt")])
-        let lines = { (rows: [RanchTree.Row]) in
+        let lines = { (rows: [LoopTree.Row]) in
             rows.map { row -> String in
                 switch row {
                 case .folder(_, let name, let depth): return "\(depth) \(name)/"
@@ -5585,32 +5600,32 @@ do {
               == ["1 Archive/", "1 timecourse/", "2 run/", "1 transfer/", "2 b.csv", "2 a.csv", "1 notes.md"],
               "an open folder shows its folders, then its files in the order given, a level further in")
         let everything = tree.rows { _ in true }
-        check(lines(everything).contains("3 a.csv") && RanchTree.make([]).isEmpty && !tree.isEmpty,
+        check(lines(everything).contains("3 a.csv") && LoopTree.make([]).isEmpty && !tree.isEmpty,
               "folders inside folders open in turn, and a directory with no files has no outline")
         check(Set(everything.map(\.id)).count == everything.count, "every line of the outline has an id of its own")
-        check(RanchTree.key(directory: "d") == "d" && RanchTree.key(directory: "d", folder: "transfer/run") == "d/transfer/run",
+        check(LoopTree.key(directory: "d") == "d" && LoopTree.key(directory: "d", folder: "transfer/run") == "d/transfer/run",
               "an open directory or folder is remembered by its directory and path")
     }
 
     // Needs Review: each link's place in its source, and the sheet view that goes to it.
     do {
-        check(RanchSheetColumns.letter(0) == "A" && RanchSheetColumns.letter(25) == "Z" && RanchSheetColumns.letter(26) == "AA"
-              && RanchSheetColumns.letter(701) == "ZZ" && RanchSheetColumns.letter(702) == "AAA",
+        check(LoopSheetColumns.letter(0) == "A" && LoopSheetColumns.letter(25) == "Z" && LoopSheetColumns.letter(26) == "AA"
+              && LoopSheetColumns.letter(701) == "ZZ" && LoopSheetColumns.letter(702) == "AAA",
               "columns are lettered as spreadsheets letter them")
-        let sheet = RanchSheet(name: "Accounting", columns: 4,
+        let sheet = LoopSheet(name: "Accounting", columns: 4,
                                rows: [["REVENUES", "", "", ""], ["Supplies", "400", "", "310"], ["TOTAL", "47400", "", "37902"]],
                                rowNumbers: [9, 26, 27], truncated: false)
-        let book = RanchWorkbook(sheets: [RanchSheet(name: "Notes", columns: 1, rows: [["x"]], rowNumbers: [1], truncated: false), sheet],
+        let book = LoopWorkbook(sheets: [LoopSheet(name: "Notes", columns: 1, rows: [["x"]], rowNumbers: [1], truncated: false), sheet],
                                  skipped: [])
-        let cited = book.place(of: RanchAnchor(kind: "table-cell", sheet: "Accounting", rowIndex: 1, columnIndex: 3, rowKey: "Supplies"))
-        check(cited == RanchCellPlace(sheet: 1, sheetName: "Accounting", row: 1, column: 3, name: "D26"),
+        let cited = book.place(of: LoopAnchor(kind: "table-cell", sheet: "Accounting", rowIndex: 1, columnIndex: 3, rowKey: "Supplies"))
+        check(cited == LoopCellPlace(sheet: 1, sheetName: "Accounting", row: 1, column: 3, name: "D26"),
               "a link's cell is found on its sheet and named as the app names it")
-        check(book.place(of: RanchAnchor(sheet: "Accounting", rowIndex: 0, columnIndex: 1, rowKey: "Supplies"))?.row == 1,
+        check(book.place(of: LoopAnchor(sheet: "Accounting", rowIndex: 0, columnIndex: 1, rowKey: "Supplies"))?.row == 1,
               "a row that moved since the link was made is found again by its label")
-        check(book.place(of: RanchAnchor(sheet: "Gone", rowIndex: 0, columnIndex: 0)) == nil
-              && book.place(of: RanchAnchor(kind: "pdf-page", pageNumber: 3)) == nil,
+        check(book.place(of: LoopAnchor(sheet: "Gone", rowIndex: 0, columnIndex: 0)) == nil
+              && book.place(of: LoopAnchor(kind: "pdf-page", pageNumber: 3)) == nil,
               "a sheet the workbook no longer has, or a place that is not a cell, is not guessed at")
-        check(book.place(of: RanchAnchor(sheet: "Accounting", rowIndex: 2, columnIndex: 9))?.name == nil,
+        check(book.place(of: LoopAnchor(sheet: "Accounting", rowIndex: 2, columnIndex: 9))?.name == nil,
               "a link to a whole row shades the row and names no cell")
 
         let json = """
@@ -5621,37 +5636,37 @@ do {
                     "anchor": {"kind": "table-cell", "sheet": "Accounting", "rowIndex": "18", "columnIndex": 1, "elementId": 7},
                     "issue": null}]}
         """
-        let item = try? JSONDecoder().decode(RanchReviewItem.self, from: Data(json.utf8))
+        let item = try? JSONDecoder().decode(LoopReviewItem.self, from: Data(json.utf8))
         check(item?.links.first?.documentName == "Memo.docx" && item?.links.first?.currentValue == "450"
-              && item?.links.first?.anchor == RanchAnchor(kind: "table-cell", sheet: "Accounting", columnIndex: 1),
+              && item?.links.first?.anchor == LoopAnchor(kind: "table-cell", sheet: "Accounting", columnIndex: 1),
               "an anchor field of an unexpected type is left out rather than failing the library")
-        let older = try? JSONDecoder().decode(RanchReviewItem.self, from: Data("""
+        let older = try? JSONDecoder().decode(LoopReviewItem.self, from: Data("""
         {"id": "r", "kind": "unreadable", "title": "t", "directoryId": "d", "path": null, "fileId": null, "documents": [], "detail": "x"}
         """.utf8))
         check(older?.links == [], "an item from a server that sends no links still reads")
 
         let text = "first\nsecond\nthird"
-        check(RanchCodeLines.range(ofLine: 2, in: text) == NSRange(location: 6, length: 7)
-              && RanchCodeLines.range(ofLine: 3, in: text) == NSRange(location: 13, length: 5)
-              && RanchCodeLines.range(ofLine: 99, in: text).location == 13,
+        check(LoopCodeLines.range(ofLine: 2, in: text) == NSRange(location: 6, length: 7)
+              && LoopCodeLines.range(ofLine: 3, in: text) == NSRange(location: 13, length: 5)
+              && LoopCodeLines.range(ofLine: 99, in: text).location == 13,
               "a cited line is selected whole, and a line past the end selects the last")
     }
 
     let lookalikes = ["gsheet", "csv", "pdf", "gdoc", "gslides", "txt", "md", "json", "js", "step", "dxf", "png"]
-    let styles = lookalikes.compactMap(RanchTypeIcon.style(for:))
+    let styles = lookalikes.compactMap(LoopTypeIcon.style(for:))
     check(styles.count == lookalikes.count && Set(styles.map { "\($0.mark)" }).count == lookalikes.count,
           "every type macOS draws as a plain white page gets an icon of its own")
-    check(RanchTypeIcon.style(for: "gsheet")?.mark == .sheet && RanchTypeIcon.style(for: "csv")?.mark == .label("CSV")
-          && RanchTypeIcon.style(for: "gsheet")?.color != RanchTypeIcon.style(for: "csv")?.color
-          && RanchTypeIcon.style(for: "pdf")?.mark == .label("PDF"),
+    check(LoopTypeIcon.style(for: "gsheet")?.mark == .sheet && LoopTypeIcon.style(for: "csv")?.mark == .label("CSV")
+          && LoopTypeIcon.style(for: "gsheet")?.color != LoopTypeIcon.style(for: "csv")?.color
+          && LoopTypeIcon.style(for: "pdf")?.mark == .label("PDF"),
           "a Google Sheet, a CSV and a PDF look different from each other")
-    check(["xlsx", "docx", "pptx", "numbers", "pages", "key", "html", "zip"].allSatisfy { RanchTypeIcon.style(for: $0) == nil },
+    check(["xlsx", "docx", "pptx", "numbers", "pages", "key", "html", "zip"].allSatisfy { LoopTypeIcon.style(for: $0) == nil },
           "Excel, Word, PowerPoint, iWork, web pages and archives keep their apps' own icons")
-    check(RanchTypeIcon.style(for: "PDF") == RanchTypeIcon.style(for: "pdf") && RanchTypeIcon.style(for: "jpeg")?.mark == .label("JPG")
-          && RanchTypeIcon.style(for: "markdown")?.mark == .label("MD"),
+    check(LoopTypeIcon.style(for: "PDF") == LoopTypeIcon.style(for: "pdf") && LoopTypeIcon.style(for: "jpeg")?.mark == .label("JPG")
+          && LoopTypeIcon.style(for: "markdown")?.mark == .label("MD"),
           "type icons ignore case and shorten long extensions")
     func ink(_ fileExtension: String) -> Data? {
-        guard let image = RanchTypeIcon.image(for: fileExtension, size: 20),
+        guard let image = LoopTypeIcon.image(for: fileExtension, size: 20),
               let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 40, pixelsHigh: 40, bitsPerSample: 8, samplesPerPixel: 4,
                                          hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
         else { return nil }
@@ -5663,26 +5678,26 @@ do {
     }
     let blank = ink("xlsx")
     check(blank == nil && ink("pdf") != nil && ink("pdf") != ink("csv") && ink("gsheet") != ink("gdoc")
-          && RanchTypeIcon.image(for: "pdf", size: 20) === RanchTypeIcon.image(for: "pdf", size: 20),
+          && LoopTypeIcon.image(for: "pdf", size: 20) === LoopTypeIcon.image(for: "pdf", size: 20),
           "type icons draw differently from each other and are made once per size")
 
     func components(_ color: NSColor) -> (saturation: CGFloat, brightness: CGFloat) {
         let rgb = color.usingColorSpace(.deviceRGB) ?? color
         return (rgb.saturationComponent, rgb.brightnessComponent)
     }
-    let grey = components(RanchActivityColor.color(for: 0)), green = components(RanchActivityColor.color(for: 1))
+    let grey = components(LoopActivityColor.color(for: 0)), green = components(LoopActivityColor.color(for: 1))
     check(grey.saturation < 0.01 && green.saturation > 0.6 && green.brightness > grey.brightness,
           "unused files are grey and the most used are bright green")
-    check(components(RanchActivityColor.color(for: .nan)).saturation < 0.01
-          && components(RanchActivityColor.color(for: 4)).saturation == green.saturation,
+    check(components(LoopActivityColor.color(for: .nan)).saturation < 0.01
+          && components(LoopActivityColor.color(for: 4)).saturation == green.saturation,
           "activity outside 0...1 is clamped")
-    check(RanchViewerKind.choose(for: "STEP") == .wireframe && RanchViewerKind.choose(for: "stl") == .mesh
-          && RanchViewerKind.choose(for: "dxf") == .plan && RanchViewerKind.choose(for: "xlsx") == .sheet
-          && RanchViewerKind.choose(for: "XLS") == .sheet && RanchViewerKind.choose(for: "csv") == .quickLook,
+    check(LoopViewerKind.choose(for: "STEP") == .wireframe && LoopViewerKind.choose(for: "stl") == .mesh
+          && LoopViewerKind.choose(for: "dxf") == .plan && LoopViewerKind.choose(for: "xlsx") == .sheet
+          && LoopViewerKind.choose(for: "XLS") == .sheet && LoopViewerKind.choose(for: "csv") == .quickLook,
           "models turn, drawings pan, and documents scroll in Quick Look")
-    check(RanchViewerKind.choose(for: "PPTX") == .slides && RanchViewerKind.choose(for: "key") == .quickLook,
+    check(LoopViewerKind.choose(for: "PPTX") == .slides && LoopViewerKind.choose(for: "key") == .quickLook,
           "a PowerPoint deck shows its slides' pictures under a slide menu")
-    let slideAnchor = try? JSONDecoder().decode(RanchAnchor.self, from: Data(#"{"kind":"text-excerpt","slideNumber":3}"#.utf8))
+    let slideAnchor = try? JSONDecoder().decode(LoopAnchor.self, from: Data(#"{"kind":"text-excerpt","slideNumber":3}"#.utf8))
     check(slideAnchor?.slideNumber == 3, "a link into a deck names its slide")
 
     let codeJSON = """
@@ -5691,24 +5706,24 @@ do {
      "counts": {"tabs": 0, "opens": 0, "visits": 0, "shares": 0, "references": 0}, "activeShares": 0, "activity": 0,
      "shareable": false}
     """
-    let code = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON.utf8))
-    check(code.isCode && !code.canShareLink && RanchViewerKind.choose(for: code) == .code,
+    let code = try! JSONDecoder().decode(LoopSource.self, from: Data(codeJSON.utf8))
+    check(code.isCode && !code.canShareLink && LoopViewerKind.choose(for: code) == .code,
           "code shows numbered lines and offers no share link")
-    let notesFile = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON
+    let notesFile = try! JSONDecoder().decode(LoopSource.self, from: Data(codeJSON
         .replacingOccurrences(of: "src/server.js", with: "notes.md").replacingOccurrences(of: "server.js", with: "notes.md")
         .replacingOccurrences(of: "\"fileType\": \"code\"", with: "\"fileType\": \"markdown\"").utf8))
-    check(RanchViewerKind.choose(for: notesFile) == .text, "notes show in the text viewer, which tints the passages their latest version changed")
-    let older = try! JSONDecoder().decode(RanchSource.self, from: Data(codeJSON
+    check(LoopViewerKind.choose(for: notesFile) == .text, "notes show in the text viewer, which tints the passages their latest version changed")
+    let older = try! JSONDecoder().decode(LoopSource.self, from: Data(codeJSON
         .replacingOccurrences(of: ",\n \"shareable\": false", with: "").replacingOccurrences(of: "\"fileType\": \"code\",", with: "").utf8))
-    check(older.canShareLink && !older.isCode && RanchViewerKind.choose(for: older) == .quickLook,
+    check(older.canShareLink && !older.isCode && LoopViewerKind.choose(for: older) == .quickLook,
           "a server that says neither keeps the file shareable and in Quick Look")
     let text = "one\ntwo\nthree\n"
-    check(RanchCodeLines.lines(in: text, selection: NSRange(location: 4, length: 3)) == 2...2
-          && RanchCodeLines.lines(in: text, selection: NSRange(location: 0, length: 8)) == 1...2
-          && RanchCodeLines.lines(in: text, selection: NSRange(location: 2, length: 7)) == 1...3
-          && RanchCodeLines.lines(in: text, selection: NSRange(location: 3, length: 0)) == nil,
+    check(LoopCodeLines.lines(in: text, selection: NSRange(location: 4, length: 3)) == 2...2
+          && LoopCodeLines.lines(in: text, selection: NSRange(location: 0, length: 8)) == 1...2
+          && LoopCodeLines.lines(in: text, selection: NSRange(location: 2, length: 7)) == 1...3
+          && LoopCodeLines.lines(in: text, selection: NSRange(location: 3, length: 0)) == nil,
           "a selection covers the lines it touches, not the line after its last line break")
-    check(RanchCodeLines.label(4...4) == "Line 4" && RanchCodeLines.label(10...20) == "Lines 10\u{2013}20",
+    check(LoopCodeLines.label(4...4) == "Line 4" && LoopCodeLines.label(10...20) == "Lines 10\u{2013}20",
           "selected lines are named the way they are written")
 }
 
@@ -5726,45 +5741,45 @@ do {
         {"kind": "add", "text": "Soil was damp after rain.", "before": null, "after": 4}]}]},
      "table": null, "fields": null, "values": [], "valueCount": 0, "movedCount": 0, "bytesReleased": false}}
     """
-    let detail = try? RanchChangeDetail.decode(Data(json.utf8))
+    let detail = try? LoopChangeDetail.decode(Data(json.utf8))
     check(detail?.lines?.hunks.first?.lines.count == 3 && detail?.at != nil && detail?.version.after == 13
           && detail?.listsChanges == true && detail?.isCode == false,
           "A change's detail decodes with its lines, versions and date")
-    check(RanchChangeWords.version(RanchChangeDetail.Version(before: 12, after: 13)) == "12 \u{2192} 13"
-          && RanchChangeWords.version(RanchChangeDetail.Version(before: nil, after: 1)) == "1",
+    check(LoopChangeWords.version(LoopChangeDetail.Version(before: 12, after: 13)) == "12 \u{2192} 13"
+          && LoopChangeWords.version(LoopChangeDetail.Version(before: nil, after: 1)) == "1",
           "A change names the directory versions it went between")
 
     let lines = detail?.lines?.hunks.first?.lines ?? []
-    let marks = RanchChangeWords.changedWords(in: lines)
+    let marks = LoopChangeWords.changedWords(in: lines)
     let marked = { (index: Int) in (marks[index] ?? []).map { (lines[index].text as NSString).substring(with: $0) } }
     check(marks[0] == nil && marked(1) == ["dry"] && marked(2) == ["damp after rain"],
           "A rewritten line marks the words it dropped and the words its replacement brought, a phrase as one mark")
-    let rewritten = [RanchChangeDetail.Line(kind: "remove", text: "Old words here", before: 1, after: nil),
-                     RanchChangeDetail.Line(kind: "add", text: "Entirely different text", before: nil, after: 1)]
-    check(RanchChangeWords.changedWords(in: rewritten).isEmpty, "A line rewritten whole is left to its colour")
+    let rewritten = [LoopChangeDetail.Line(kind: "remove", text: "Old words here", before: 1, after: nil),
+                     LoopChangeDetail.Line(kind: "add", text: "Entirely different text", before: nil, after: 1)]
+    check(LoopChangeWords.changedWords(in: rewritten).isEmpty, "A line rewritten whole is left to its colour")
 
-    check(RanchChangeWords.who(RanchActor(name: "Lasso", type: "SYSTEM"), source: "WATCHER") == .disk
-          && RanchChangeWords.who(RanchActor(name: "Lasso", type: "SYSTEM"), source: "REINDEX") == .lasso
-          && RanchChangeWords.who(RanchActor(name: "Claude Code", type: "AI_AGENT"), source: "AGENT_EDIT") == .agent("Claude Code")
-          && RanchChangeWords.who(RanchActor(name: "Dana Walker", type: "HUMAN_SELF"), source: "WATCHER").title == "Dana Walker",
+    check(LoopChangeWords.who(LoopActor(name: "Lasso", type: "SYSTEM"), source: "WATCHER") == .disk
+          && LoopChangeWords.who(LoopActor(name: "Lasso", type: "SYSTEM"), source: "REINDEX") == .lasso
+          && LoopChangeWords.who(LoopActor(name: "Claude Code", type: "AI_AGENT"), source: "AGENT_EDIT") == .agent("Claude Code")
+          && LoopChangeWords.who(LoopActor(name: "Dana Walker", type: "HUMAN_SELF"), source: "WATCHER").title == "Dana Walker",
           "A save Lasso only saw on disk is never credited to Lasso")
-    check(RanchChangeWords.recorded("WATCHER") == "Saved on this Mac" && RanchChangeWords.recorded("SOME_NEW_SOURCE") == "Some new source",
+    check(LoopChangeWords.recorded("WATCHER") == "Saved on this Mac" && LoopChangeWords.recorded("SOME_NEW_SOURCE") == "Some new source",
           "How a change was recorded reads as words, even for a source the app does not know yet")
     let kb = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file) }
-    check(RanchChangeWords.size(before: 2048, after: 3072) == "\(kb(2048)) \u{2192} \(kb(3072))"
-          && RanchChangeWords.size(before: 2048, after: 2048) == "\(kb(2048)), unchanged"
-          && RanchChangeWords.size(before: 2048, after: nil) == "\(kb(2048)) when removed"
-          && RanchChangeWords.size(before: nil, after: nil) == nil,
+    check(LoopChangeWords.size(before: 2048, after: 3072) == "\(kb(2048)) \u{2192} \(kb(3072))"
+          && LoopChangeWords.size(before: 2048, after: 2048) == "\(kb(2048)), unchanged"
+          && LoopChangeWords.size(before: 2048, after: nil) == "\(kb(2048)) when removed"
+          && LoopChangeWords.size(before: nil, after: nil) == nil,
           "A change's size says what it was and what it became")
-    check(RanchChangeWords.row("row:4") == "Row 4" && RanchChangeWords.row("Ada") == "Ada"
-          && RanchChangeWords.lineSummary(RanchChangeDetail.Lines(added: 2, removed: 1, hunks: [], truncated: false)) == "2 lines added, 1 removed",
+    check(LoopChangeWords.row("row:4") == "Row 4" && LoopChangeWords.row("Ada") == "Ada"
+          && LoopChangeWords.lineSummary(LoopChangeDetail.Lines(added: 2, removed: 1, hunks: [], truncated: false)) == "2 lines added, 1 removed",
           "Table rows and line counts read as words")
-    check(RanchChangeWords.textSummary(RanchTextChanges(added: 1, removed: 0, unit: "line")) == "1 line added"
-          && RanchChangeWords.textSummary(RanchTextChanges(added: 2, removed: 1, unit: "paragraph")) == "2 paragraphs added, 1 removed",
+    check(LoopChangeWords.textSummary(LoopTextChanges(added: 1, removed: 0, unit: "line")) == "1 line added"
+          && LoopChangeWords.textSummary(LoopTextChanges(added: 2, removed: 1, unit: "paragraph")) == "2 paragraphs added, 1 removed",
           "A text file's row says how many lines or paragraphs its save changed")
-    var passage = RanchHistoryEntry(id: "p", directoryId: "d1", at: nil, change: "edited", path: "todo.txt", previousPath: nil,
+    var passage = LoopHistoryEntry(id: "p", directoryId: "d1", at: nil, change: "edited", path: "todo.txt", previousPath: nil,
                                     fileId: nil, fileCount: nil)
-    passage.valueChanges = RanchValueChanges(count: 1, first: .init(label: "todo", before: "Order rebar\nCall the surveyor",
+    passage.valueChanges = LoopValueChanges(count: 1, first: .init(label: "todo", before: "Order rebar\nCall the surveyor",
                                                                       after: "Order rebar\nCall the surveyor\nBook the crane"))
     check(passage.valueCaption(directory: "Site") == "1 value changed \u{00B7} Site",
           "A passage is counted rather than quoted, since a row has no room for its lines")
@@ -5773,11 +5788,11 @@ do {
 // MARK: Recent Changes holds still until new changes are taken in
 
 do {
-    func entry(_ id: String) -> RanchHistoryEntry {
-        RanchHistoryEntry(id: id, directoryId: "d1", at: nil, change: "edited", path: "\(id).md", previousPath: nil,
+    func entry(_ id: String) -> LoopHistoryEntry {
+        LoopHistoryEntry(id: id, directoryId: "d1", at: nil, change: "edited", path: "\(id).md", previousPath: nil,
                           fileId: nil, fileCount: nil)
     }
-    var feed = RanchChangeFeed()
+    var feed = LoopChangeFeed()
     let first = [entry("b"), entry("a")]
     check(feed.shown(first).map(\.id) == ["b", "a"] && feed.waiting(first).isEmpty,
           "Before the library is read, nothing waits behind the pill")
@@ -5792,7 +5807,7 @@ do {
     feed.takeIn(aged)
     check(feed.shown(aged).map(\.id) == ["d", "c", "b"] && feed.waiting(aged).isEmpty,
           "Clicking the pill or pulling the list takes every waiting change in")
-    check(RanchChangeFeed.pillTitle(1) == "1 new change" && RanchChangeFeed.pillTitle(3) == "3 new changes",
+    check(LoopChangeFeed.pillTitle(1) == "1 new change" && LoopChangeFeed.pillTitle(3) == "3 new changes",
           "The pill counts the changes waiting")
 }
 
@@ -6076,10 +6091,10 @@ do {
     check(written?.detail(replacing: "19250") == "19250 · was 18400", "a CSV value reads as written")
 }
 
-// The Ranch's Recent Changes name the value an edit changed.
+// The Loop's Recent Changes name the value an edit changed.
 do {
-    func entry(_ json: String) -> RanchHistoryEntry? {
-        try? JSONDecoder().decode(RanchHistoryEntry.self, from: Data(json.utf8))
+    func entry(_ json: String) -> LoopHistoryEntry? {
+        try? JSONDecoder().decode(LoopHistoryEntry.self, from: Data(json.utf8))
     }
     let one = entry(#"{"id":"c1","directoryId":"d","change":"edited","path":"budget.xlsx","valueChanges":{"count":1,"first":{"label":"Q3 Total","before":"18,400","after":"19,250"}}}"#)
     check(one?.valueCaption(directory: "Finance") == "Q3 Total 18,400 \u{2192} 19,250", "one changed value reads as its label, old and new value")
@@ -6100,66 +6115,66 @@ do {
 
 // A change's detail counts the values typed into apart from the formula cells that followed them.
 do {
-    func detail(_ values: String, count: Int, recalculated: Int) -> RanchChangeDetail? {
-        try? RanchChangeDetail.decode(Data(#"{"change":{"id":"f1","change":"edited","directoryId":"d","source":"WATCHER","actor":{"name":"Lasso","type":"SYSTEM"},"version":{"before":1,"after":2},"path":"Income.xls","previousPath":null,"fileId":"x","fileCount":1,"files":[],"file":null,"lines":null,"table":null,"fields":null,"values":[\#(values)],"valueCount":\#(count),"recalculatedCount":\#(recalculated),"movedCount":0,"bytesReleased":false}}"#.utf8))
+    func detail(_ values: String, count: Int, recalculated: Int) -> LoopChangeDetail? {
+        try? LoopChangeDetail.decode(Data(#"{"change":{"id":"f1","change":"edited","directoryId":"d","source":"WATCHER","actor":{"name":"Lasso","type":"SYSTEM"},"version":{"before":1,"after":2},"path":"Income.xls","previousPath":null,"fileId":"x","fileCount":1,"files":[],"file":null,"lines":null,"table":null,"fields":null,"values":[\#(values)],"valueCount":\#(count),"recalculatedCount":\#(recalculated),"movedCount":0,"bytesReleased":false}}"#.utf8))
     }
     let typed = #"{"kind":"modified","label":"Product 1","place":"Accounting!B18","before":"4000","after":"5000"}"#
     let formula = #"{"kind":"modified","label":"Net","place":"Accounting!B69","before":"6236","after":"5236","recalculated":true}"#
     let mixed = detail([typed, formula, formula].joined(separator: ","), count: 3, recalculated: 2)
     check(mixed?.values.map(\.isRecalculated) == [false, true, true], "a value says whether a formula recalculated it")
-    check(mixed.map(RanchChangeWords.valueSummary) == "1 value changed \u{00B7} 2 recalculated", "the caption counts each apart")
-    check(RanchChangeWords.recalculatedFold(9, typed: 1) == "9 formula cells recalculated from it", "the fold names what followed the typed value")
-    check(RanchChangeWords.recalculatedFold(1, typed: 2) == "1 formula cell recalculated from them", "and from several")
+    check(mixed.map(LoopChangeWords.valueSummary) == "1 value changed \u{00B7} 2 recalculated", "the caption counts each apart")
+    check(LoopChangeWords.recalculatedFold(9, typed: 1) == "9 formula cells recalculated from it", "the fold names what followed the typed value")
+    check(LoopChangeWords.recalculatedFold(1, typed: 2) == "1 formula cell recalculated from them", "and from several")
     let onlyFormulas = detail(formula, count: 1, recalculated: 1)
-    check(onlyFormulas.map(RanchChangeWords.valueSummary) == "1 value recalculated", "a save that changed only formula results says so")
+    check(onlyFormulas.map(LoopChangeWords.valueSummary) == "1 value recalculated", "a save that changed only formula results says so")
     let older = detail(typed, count: 1, recalculated: 0)
-    check(older.map(RanchChangeWords.valueSummary) == "1 value changed", "a value typed into alone reads as before")
+    check(older.map(LoopChangeWords.valueSummary) == "1 value changed", "a value typed into alone reads as before")
 }
 
 // A folder's review card says who changed what since it was last approved, and how each conversation ended.
 do {
-    let dana = RanchReviewActor(id: "human:dana", name: "Dana Walker", type: "HUMAN_SELF")
-    let me = RanchReviewActor(id: RanchReviewActor.meID, name: "Desktop", type: "HUMAN_SELF")
-    let chatgpt = RanchReviewActor(id: "agent:chatgpt", name: "ChatGPT", type: "AI_AGENT")
-    check(RanchReviewWords.names([dana, me, chatgpt]) == "Dana Walker, you and ChatGPT", "this Mac's person is \u{201C}you\u{201D} after a name")
-    check(RanchReviewWords.names([me, dana]) == "You and Dana Walker", "and \u{201C}You\u{201D} leading")
-    check(RanchReviewWords.names([dana, me, chatgpt, RanchReviewActor(id: "human:sam", name: "Sam", type: "HUMAN_SELF")]) == "Dana Walker, you and 2 others",
+    let dana = LoopReviewActor(id: "human:dana", name: "Dana Walker", type: "HUMAN_SELF")
+    let me = LoopReviewActor(id: LoopReviewActor.meID, name: "Desktop", type: "HUMAN_SELF")
+    let chatgpt = LoopReviewActor(id: "agent:chatgpt", name: "ChatGPT", type: "AI_AGENT")
+    check(LoopReviewWords.names([dana, me, chatgpt]) == "Dana Walker, you and ChatGPT", "this Mac's person is \u{201C}you\u{201D} after a name")
+    check(LoopReviewWords.names([me, dana]) == "You and Dana Walker", "and \u{201C}You\u{201D} leading")
+    check(LoopReviewWords.names([dana, me, chatgpt, LoopReviewActor(id: "human:sam", name: "Sam", type: "HUMAN_SELF")]) == "Dana Walker, you and 2 others",
           "four or more are counted")
-    check(RanchReviewWords.isPrompt("  \\ cap it at 15 minutes") && !RanchReviewWords.isPrompt("Ship it"), "a backslash first hands the words to the AI")
+    check(LoopReviewWords.isPrompt("  \\ cap it at 15 minutes") && !LoopReviewWords.isPrompt("Ship it"), "a backslash first hands the words to the AI")
 
     let json = #"{"review":{"directoryId":"d","name":"Accounting","state":"approved","base":{"version":3,"at":"2026-11-12T10:00:00.000Z","approvedBy":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}},"current":{"version":6,"at":"2026-11-18T10:00:00.000Z"},"saves":3,"people":[{"id":"human:dana","name":"Dana Walker","type":"HUMAN_SELF"}],"pendingComments":0,"approval":{"id":"a1","at":"2026-11-18T10:05:00.000Z","by":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"},"comments":1},"files":[{"path":"Income.xlsx","previousPath":null,"fileId":"f","fileType":"spreadsheet","change":"edited","kind":"sheet","viewed":true,"comments":2,"openThreads":0,"editors":[]},{"path":"notes.md","previousPath":null,"fileId":"g","fileType":"markdown","change":"added","kind":"lines","viewed":false,"comments":0,"openThreads":0,"editors":[]}],"moreFiles":0}}"#
-    let review = try? RanchReview.decode(Data(json.utf8))
+    let review = try? LoopReview.decode(Data(json.utf8))
     let noon = ISO8601DateFormatter().date(from: "2026-11-18T12:00:00Z")!
-    check(review.map { RanchReviewWords.headline($0, now: noon) } == "Dana Walker edited 2 files since you approved Nov 12", "the headline names who, how much and since when")
-    let asked = try? RanchReview.decode(Data(json.replacingOccurrences(of: #""pendingComments":0"#, with: #""pendingComments":0,"requests":2"#).utf8))
-    check(asked.map { RanchReviewWords.headline($0, now: noon) } == "2 changes requested", "a review of requests alone says so")
-    check(RanchReviewWords.change("unchanged") == "Change requested", "a file only asked to change says so")
-    check(RanchReviewWords.change("review") == "To review", "a file in a review asked for by name is there to be looked at")
-    let named = try? RanchReview.decode(Data(json.replacingOccurrences(of: #""pendingComments":0"#, with: #""pendingComments":0,"requestId":"r1","number":3,"title":"Check the hours","reviewers":[{"name":"Dana Kim","email":"dana@studio.co"},{"name":"Sam Lee","email":"sam@acme.io"}],"requestedBy":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}"#).utf8))
-    check(named.map { RanchReviewWords.headline($0, now: noon) } == "You asked Dana Kim and Sam Lee to review 2 files in Accounting",
+    check(review.map { LoopReviewWords.headline($0, now: noon) } == "Dana Walker edited 2 files since you approved Nov 12", "the headline names who, how much and since when")
+    let asked = try? LoopReview.decode(Data(json.replacingOccurrences(of: #""pendingComments":0"#, with: #""pendingComments":0,"requests":2"#).utf8))
+    check(asked.map { LoopReviewWords.headline($0, now: noon) } == "2 changes requested", "a review of requests alone says so")
+    check(LoopReviewWords.change("unchanged") == "Change requested", "a file only asked to change says so")
+    check(LoopReviewWords.change("review") == "To review", "a file in a review asked for by name is there to be looked at")
+    let named = try? LoopReview.decode(Data(json.replacingOccurrences(of: #""pendingComments":0"#, with: #""pendingComments":0,"requestId":"r1","number":3,"title":"Check the hours","reviewers":[{"name":"Dana Kim","email":"dana@studio.co"},{"name":"Sam Lee","email":"sam@acme.io"}],"requestedBy":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}"#).utf8))
+    check(named.map { LoopReviewWords.headline($0, now: noon) } == "You asked Dana Kim and Sam Lee to review 2 files in Accounting",
           "a review asked for by name says who was asked to look at what")
-    check(RanchInvitee(email: " Dana.Kim@Studio.co").name == "Dana Kim" && RanchInvitee(email: "sam@acme.io", name: "Sam Lee").name == "Sam Lee",
+    check(LoopInvitee(email: " Dana.Kim@Studio.co").name == "Dana Kim" && LoopInvitee(email: "sam@acme.io", name: "Sam Lee").name == "Sam Lee",
           "a reviewer is named from their address unless a name is given")
-    check(RanchInvitee.isAddress("nour@acme.io") && !RanchInvitee.isAddress("nour@acme"), "an address needs a domain with a dot")
-    check(review.map(RanchReviewWords.viewed) == "1/2 viewed", "files looked at are counted")
-    check(review?.approval.map { RanchReviewWords.approved($0).lead + " " + RanchReviewWords.approved($0).rest } == "You approved these changes with 1 comment",
+    check(LoopInvitee.isAddress("nour@acme.io") && !LoopInvitee.isAddress("nour@acme"), "an address needs a domain with a dot")
+    check(review.map(LoopReviewWords.viewed) == "1/2 viewed", "files looked at are counted")
+    check(review?.approval.map { LoopReviewWords.approved($0).lead + " " + LoopReviewWords.approved($0).rest } == "You approved these changes with 1 comment",
           "the banner says who approved and what it sent")
-    check(RanchReviewWords.sheetCounts(.init(cells: 3, recalculated: 2, rowsAdded: 1, rowsRemoved: 0)) == "1 cell \u{00B7} 2 recalculated \u{00B7} 1 row added",
+    check(LoopReviewWords.sheetCounts(.init(cells: 3, recalculated: 2, rowsAdded: 1, rowsRemoved: 0)) == "1 cell \u{00B7} 2 recalculated \u{00B7} 1 row added",
           "a sheet counts the cells typed into apart from the formula cells")
 
-    func thread(_ json: String) -> RanchReviewThread? { try? RanchOverview.decoder().decode(RanchReviewThread.self, from: Data(json.utf8)) }
+    func thread(_ json: String) -> LoopReviewThread? { try? LoopOverview.decoder().decode(LoopReviewThread.self, from: Data(json.utf8)) }
     let applied = thread(#"{"id":"t1","path":"backoff.ts","state":"applied","anchor":{"kind":"line","line":9,"text":"x"},"by":{"id":"human:marcus","name":"Marcus Johnson","type":"HUMAN_COLLABORATOR"},"at":null,"resolved":null,"applied":{"at":null,"by":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"}},"position":{"line":9},"place":"Line 9","suggestion":{"before":"a","after":"b"},"pending":false,"comments":[]}"#)
-    check(applied.map { RanchReviewWords.summary($0).lead + " \u{00B7} " + RanchReviewWords.summary($0).rest } == "Suggestion applied \u{00B7} Line 9 \u{00B7} Marcus Johnson",
+    check(applied.map { LoopReviewWords.summary($0).lead + " \u{00B7} " + LoopReviewWords.summary($0).rest } == "Suggestion applied \u{00B7} Line 9 \u{00B7} Marcus Johnson",
           "an applied suggestion folds to who suggested it and where")
     let edited = thread(#"{"id":"t2","path":"notes.md","state":"applied","anchor":{"kind":"line","line":3,"text":"x"},"by":{"id":"human:desktop","name":"Desktop","type":"HUMAN_SELF"},"at":null,"resolved":null,"applied":{"at":null,"by":{"id":"agent:chatgpt","name":"ChatGPT","type":"AI_AGENT"}},"position":{"line":3},"place":"Line 3","suggestion":{"before":"a","after":"b"},"pending":false,"comments":[{"id":"c1","author":{"id":"agent:chatgpt","name":"ChatGPT","type":"AI_AGENT"},"initiatedBy":{"id":"human:dana","name":"Dana Walker","type":"HUMAN_SELF"},"body":"Capped it.","at":null,"pending":false,"executionId":"x1"}]}"#)
-    check(edited.map { RanchReviewWords.summary($0).lead + " \u{00B7} " + RanchReviewWords.summary($0).rest } == "ChatGPT edited \u{00B7} Line 3 \u{00B7} asked by Dana Walker",
+    check(edited.map { LoopReviewWords.summary($0).lead + " \u{00B7} " + LoopReviewWords.summary($0).rest } == "ChatGPT edited \u{00B7} Line 3 \u{00B7} asked by Dana Walker",
           "an AI's edit folds to the AI, the place and who asked")
     check(edited?.editedByAI == true && applied?.editedByAI == false, "a thread knows when the AI made its change")
 }
 
 // A Needs Review row names the old and new value and the claim they back.
 do {
-    func item(_ json: String) -> RanchReviewItem? { try? JSONDecoder().decode(RanchReviewItem.self, from: Data(json.utf8)) }
+    func item(_ json: String) -> LoopReviewItem? { try? JSONDecoder().decode(LoopReviewItem.self, from: Data(json.utf8)) }
     let changed = item(#"{"id":"r1","kind":"changed","title":"Linked value changed","directoryId":"d","documents":["memo.md"],"detail":"x","before":"18,400","after":"19,250","claim":"Payroll came to 18,400"}"#)
     check(changed?.valueChangeLine == "18,400 \u{2192} 19,250 \u{00B7} \u{201C}Payroll came to 18,400\u{201D}",
           "a changed link reads as old to new value and its claim")
@@ -6208,23 +6223,23 @@ do {
           "a passage written twice in its block is not marked, since either could be the cited one")
 }
 
-// The Ranch's sheet view tints the cells its version changed, with what they were.
+// The Loop's sheet view tints the cells its version changed, with what they were.
 do {
     let json = #"{"sheets":[{"name":"Budget","columns":2,"rows":[["Line","Amount"],["Rent","4200"],["Payroll","19250"]],"rowNumbers":[1,2,3],"truncated":false}],"skipped":[],"version":"s2","versions":[{"snapshotId":"s2","at":"2026-11-10T15:04:00Z"},{"snapshotId":"s1","at":"2026-11-09T09:00:00Z"}],"changes":[{"sheet":"Budget","row":3,"column":1,"before":"18,400","after":"19,250","changedAt":"2026-11-10T15:04:00Z"}]}"#
-    let book = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(json.utf8))
+    let book = try? JSONDecoder().decode(LoopWorkbook.self, from: Data(json.utf8))
     let cells = book?.changedCells(onSheet: 0) ?? [:]
-    check(cells.count == 1 && cells[RanchCellKey(row: 2, column: 1)]?.before == "18,400", "a changed cell is found at the row the grid shows it on")
-    check(cells[RanchCellKey(row: 2, column: 1)]?.hoverText(date: { _ in "Nov 10, 3:04 PM" }) == "was 18,400 \u{00B7} Nov 10, 3:04 PM",
+    check(cells.count == 1 && cells[LoopCellKey(row: 2, column: 1)]?.before == "18,400", "a changed cell is found at the row the grid shows it on")
+    check(cells[LoopCellKey(row: 2, column: 1)]?.hoverText(date: { _ in "Nov 10, 3:04 PM" }) == "was 18,400 \u{00B7} Nov 10, 3:04 PM",
           "hovering a changed cell says what it was and when")
     check(book?.versions?.map(\.snapshotId) == ["s2", "s1"], "the file's versions are listed newest first")
-    let stored = try? JSONDecoder().decode(RanchCellChange.self, from: Data(#"{"sheet":"Budget","row":3,"column":1,"before":"18400","after":"19250","changedAt":null,"beforeDisplay":"18,400"}"#.utf8))
+    let stored = try? JSONDecoder().decode(LoopCellChange.self, from: Data(#"{"sheet":"Budget","row":3,"column":1,"before":"18400","after":"19250","changedAt":null,"beforeDisplay":"18,400"}"#.utf8))
     check(stored?.hoverText(date: { _ in "" }) == "was 18,400", "a changed cell's hover names its earlier value as the sheet shows it")
-    let older = try? JSONDecoder().decode(RanchWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
+    let older = try? JSONDecoder().decode(LoopWorkbook.self, from: Data(#"{"sheets":[],"skipped":[]}"#.utf8))
     check(older != nil && older?.changedCells(onSheet: 0).isEmpty == true && older?.versions == nil, "a workbook from an older server reads as before")
-    let kept = try? JSONDecoder().decode(RanchFileVersion.self, from: Data(#"{"snapshotId":"s1","at":null,"available":false}"#.utf8))
+    let kept = try? JSONDecoder().decode(LoopFileVersion.self, from: Data(#"{"snapshotId":"s1","at":null,"available":false}"#.utf8))
     let notes = "# Log\r\n\nSoil moisture in **plot B** rose by 19 percent.\nIt rained."
     let passageJSON = #"{"version":"s2","changes":[{"kind":"text-excerpt","pageNumber":null,"start":8,"end":55,"lineStart":3,"lineEnd":3,"before":"Soil moisture in plot B rose by 18 percent.","after":"Soil moisture in plot B rose by 19 percent.","changedAt":"2026-11-10T15:04:00Z"}]}"#
-    let passages = try? JSONDecoder().decode(RanchPassageChanges.self, from: Data(passageJSON.utf8))
+    let passages = try? JSONDecoder().decode(LoopPassageChanges.self, from: Data(passageJSON.utf8))
     let passage = passages?.changes.first
     let found = passage?.range(in: notes).map { (notes as NSString).substring(with: $0) }
     check(found == "Soil moisture in **plot B** rose by 19 percent.", "a changed passage is found at its recorded place, Markdown markers and all (\(found ?? "nil"))")

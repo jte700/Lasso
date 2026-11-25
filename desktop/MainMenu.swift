@@ -14,7 +14,7 @@ enum MainMenu {
         let about: Selector
         let settings: Selector
         let addDirectories: Selector
-        let openRanch: Selector
+        let openLoop: Selector
         let help: Selector
     }
 
@@ -65,9 +65,9 @@ enum MainMenu {
     private static func makeFileMenu(_ commands: Commands) -> NSMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("Add Work Directories…", commands.addDirectories, target: commands.target))
-        menu.addItem(item("Open \(Ranch.title)", commands.openRanch, Ranch.key, Ranch.modifiers, target: commands.target))
-        // Plain ⌘R, The Ranch's first key, still works while Lasso is in front.
-        let firstKey = item("Open \(Ranch.title)", commands.openRanch, Ranch.key, target: commands.target)
+        menu.addItem(item("Open \(Loop.title)", commands.openLoop, Loop.key, Loop.modifiers, target: commands.target))
+        // Plain ⌘R, The Loop's first key, still works while Lasso is in front.
+        let firstKey = item("Open \(Loop.title)", commands.openLoop, Loop.key, target: commands.target)
         firstKey.isHidden = true
         firstKey.allowsKeyEquivalentWhenHidden = true
         menu.addItem(firstKey)

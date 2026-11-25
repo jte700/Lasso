@@ -223,7 +223,7 @@ final class AppleCalendarBridge {
 
 /// The strip under the title bar of a window whose page runs to its top
 /// edge: dragging it moves the window, and double-clicking it zooms or
-/// minimizes the window as System Settings says. The Ranch's headers use it too.
+/// minimizes the window as System Settings says. The Loop's headers use it too.
 final class TitlebarDragView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard event.clickCount == 2 else { window?.performDrag(with: event); return }
@@ -259,11 +259,11 @@ final class ConnectAppsWindowController: NSObject, NSWindowDelegate, WKNavigatio
 
     var isVisible: Bool { window?.isVisible == true }
 
-    /// The Ranch's near-black page, so the title bar and the page read as one
-    /// surface. The window is dark whatever the Mac is set to, as The Ranch is.
-    private static let background = RanchLook.nsPage
+    /// The Loop's near-black page, so the title bar and the page read as one
+    /// surface. The window is dark whatever the Mac is set to, as The Loop is.
+    private static let background = LoopLook.nsPage
 
-    /// Figtree, The Ranch's typeface, handed to the page from the app's own
+    /// Figtree, The Loop's typeface, handed to the page from the app's own
     /// fonts: the web content runs in its own process, which never sees fonts
     /// registered for the app. Without them the page draws the system font.
     private static let figtreeScript: WKUserScript? = {

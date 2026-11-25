@@ -1,4 +1,4 @@
-/* The moving parts of the mascot heroes on Security, Benchmarks and The Ranch
+/* The moving parts of the mascot heroes on Security, Benchmarks and The Loop
    (styles in hero-quirks.css). Each page has at most one of them. */
 (() => {
   'use strict';
@@ -86,7 +86,7 @@
     }
   }
 
-  // The Ranch: one of the herd hops now and then, and any of them when clicked.
+  // The Loop: one of the herd hops now and then, and any of them when clicked.
   const HOP_MS = 700, IDLE_HOP_MS = 3200;
   function paddock(field) {
     const cows = [...field.querySelectorAll('.cow')];

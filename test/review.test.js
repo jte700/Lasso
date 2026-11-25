@@ -1,4 +1,4 @@
-// Reviews in The Ranch: a folder's changes since it was last approved, shown
+// Reviews in The Loop: a folder's changes since it was last approved, shown
 // file by file the way each kind reads best, with comments and suggested
 // changes pinned beside them, suggestions applied as the person's own edit,
 // changes asked of an AI recorded as the AI's, files marked as looked at, and
@@ -184,7 +184,7 @@ test('Applying a suggested line writes it into the file as the person\'s own edi
   assert.equal(read('backoff.ts').toString('utf8').split('\n')[4], after);
   const thread = file.threads.find((item) => item.id === threadId);
   assert.deepEqual([thread.state, thread.applied.by.id, thread.position], ['applied', me.id, { line: 5 }]);
-  const [newest] = app.ranch.overview().history;
+  const [newest] = app.loop.overview().history;
   assert.deepEqual([newest.path, newest.source, newest.actor.name], ['backoff.ts', 'DOCUMENT_CHANGE', 'Desktop']);
 });
 
@@ -290,8 +290,8 @@ test('A backslash prompt has ChatGPT change the line, recorded as its edit, aske
     ['ChatGPT', 'AI_AGENT', me.id, 'Capped the ceiling at 15 minutes.']);
   assert.deepEqual(answered.suggestion, { before, after });
   assert.deepEqual([thread.state, thread.applied.by.name, thread.position], ['applied', 'ChatGPT', { line: 5 }]);
-  const [newest] = app.ranch.overview().history;
-  const detail = app.ranch.change({ id: newest.id });
+  const [newest] = app.loop.overview().history;
+  const detail = app.loop.change({ id: newest.id });
   assert.deepEqual([detail.source, detail.actor.name, detail.initiatedBy.name, detail.request],
     ['AGENT_EDIT', 'ChatGPT', 'Desktop', 'cap the ceiling at 15 minutes']);
 });
@@ -356,7 +356,7 @@ test('A backslash prompt about a whole .xls has ChatGPT change the number, recor
   assert.deepEqual(extractSpreadsheetTables(read('statement.xls'))[0].rows[1], ['Payroll Taxes and Benefits-Direct', '250', '215']);
   const thread = file.threads.find((item) => item.id === threadId);
   assert.deepEqual([thread.state, thread.place, thread.comments.at(-1).suggestion], ['applied', 'Accounting!B2', { before: '225', after: '250' }]);
-  const [newest] = app.ranch.overview().history;
+  const [newest] = app.loop.overview().history;
   assert.deepEqual([newest.path, newest.source, newest.actor.name], ['statement.xls', 'AGENT_EDIT', 'ChatGPT']);
 });
 

@@ -1,4 +1,4 @@
-// Reviews in The Ranch: a folder's changes since it was last approved, the
+// Reviews in The Loop: a folder's changes since it was last approved, the
 // comments and suggested changes people leave on them, suggestions applied to
 // the file, changes an AI makes when a person asks it with a backslash, which
 // files were looked at, and the approval itself.

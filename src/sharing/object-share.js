@@ -202,7 +202,7 @@ export class ObjectShareService {
     catch (error) {
       // A response can be lost after the host commits the upload. Retain its
       // management key and try to close it; a failed cleanup remains revocable.
-      try { await this.revokeShare(share.token); } catch { /* the Ranch can retry */ }
+      try { await this.revokeShare(share.token); } catch { /* the Loop can retry */ }
       throw error;
     }
   }

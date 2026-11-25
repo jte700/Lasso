@@ -2,7 +2,7 @@
 // the names a line declares, as Xcode's default themes draw them. The
 // languages and colours are public/code-syntax.json, which the server's
 // source inspector reads too (public/code-syntax.js), so a file looks alike in
-// The Ranch, the suggestion card and the inspector. Both read text as UTF-16
+// The Loop, the suggestion card and the inspector. Both read text as UTF-16
 // code units, step for step alike, and must agree on every token;
 // test/fixtures/code-syntax-cases.json holds them to it.
 

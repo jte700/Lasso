@@ -13,7 +13,7 @@ import path from 'node:path';
 import { createApplication } from '../src/server.js';
 import { readZip, writeZip, zipBytes } from '../src/dependencies/zip-archive.js';
 import { locateSpans, readCarried, recordXml, withRecord } from '../src/provenance/carried-record.js';
-import { recentHistory } from '../src/ranch/history.js';
+import { recentHistory } from '../src/loop/history.js';
 import { aiLabels } from '../src/cli/ai-facts.js';
 
 const TYPES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
@@ -122,8 +122,8 @@ test('A Word document holding a paste from ChatGPT carries Lasso\'s signed recor
   const latest = adel.application.timeline.listEvents(adel.project.id)[0];
   assert.equal(latest.source, 'AI_RECORD');
   assert.equal(latest.actor.displayName, 'Lasso');
-  const ranch = recentHistory(adel.application.db, [adel.project.id], Date.now()).entries;
-  assert.deepEqual(ranch.map((entry) => entry.source), ['WATCHER', 'IMPORT']);
+  const loop = recentHistory(adel.application.db, [adel.project.id], Date.now()).entries;
+  assert.deepEqual(loop.map((entry) => entry.source), ['WATCHER', 'IMPORT']);
   assert.deepEqual(adel.application.authorship.forPath(adel.file('report.docx')).spans.map((span) => span.text), [PASTED]);
 });
 

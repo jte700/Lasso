@@ -1,4 +1,4 @@
-// Reviews in The Ranch: a folder's changes since it was last approved, the
+// Reviews in The Loop: a folder's changes since it was last approved, the
 // comments on them, suggestions applied, changes asked of an AI, files marked
 // as looked at, and approvals. Reads are GETs; everything a person does is a POST.
 

@@ -9,7 +9,7 @@ import path from 'node:path';
 import { extractSpreadsheetTables } from '../dependencies/document-extraction.js';
 import { parseDelimited } from '../history/diff.js';
 import { sequenceOperations } from '../history/sequence-diff.js';
-import { shownCell } from '../ranch/sheets.js';
+import { shownCell } from '../loop/sheets.js';
 
 /** Unchanged rows shown either side of a change. */
 export const SHEET_CONTEXT = 2;

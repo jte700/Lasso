@@ -5,15 +5,15 @@
       "note": "While the Lasso panel or Settings is open. ⇧⌘R works in any app while Lasso runs, and ⌘L works anywhere once Lasso has quit.",
       "shortcuts": [
         { "action": "Open Settings", "macos": "⌘," },
-        { "action": "Open The Ranch, from any app", "macos": "⇧⌘R" },
+        { "action": "Open The Loop, from any app", "macos": "⇧⌘R" },
         { "action": "Lasso Help", "macos": "⌘?" },
         { "action": "Quit Lasso", "macos": "⌘Q" },
         { "action": "Start Lasso again after quitting", "macos": "⌘L" }
       ]
     },
     {
-      "title": "The Ranch",
-      "note": "While The Ranch is open.",
+      "title": "The Loop",
+      "note": "While The Loop is open.",
       "shortcuts": [
         { "action": "Go to Recent Changes, All Sources, Links, Needs Review or Network", "macos": "⌘1…5" },
         { "action": "Search files", "macos": "⌘F" },

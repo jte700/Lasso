@@ -1,5 +1,5 @@
 // A worksheet stores 18400 and shows it as 18,400 by the cell's number
-// format. The card's change line and The Ranch's captions show changed values
+// format. The card's change line and The Loop's captions show changed values
 // the way the sheet does, in fields of their own beside the stored values. A
 // CSV value has no format and stays as written.
 
@@ -61,13 +61,13 @@ test('A changed worksheet value is shown in the card as the sheet formats it, an
   assert.equal(plain.currentDisplay, undefined);
 });
 
-test('The Ranch\'s captions show a changed worksheet value as the sheet formats it', (t) => {
+test('The Loop\'s captions show a changed worksheet value as the sheet formats it', (t) => {
   // Arrange
   const { app, project } = folder(t);
 
   // Act
-  const { history } = app.ranch.current().value;
-  const view = app.ranch.sheet({ directoryId: project.id, path: 'budget.xlsx' });
+  const { history } = app.loop.current().value;
+  const view = app.loop.sheet({ directoryId: project.id, path: 'budget.xlsx' });
   const edited = (file) => history.find((entry) => entry.change === 'edited' && entry.path === file)?.valueChanges?.first;
 
   // Assert
@@ -80,18 +80,18 @@ test('The Ranch\'s captions show a changed worksheet value as the sheet formats 
 test('Needs Review rows for a changed worksheet value show both values as the sheet formats them', async (t) => {
   // Arrange
   const { app, project, payroll } = folder(t);
-  const { linkReviewItems } = await import('../src/ranch/review.js');
+  const { linkReviewItems } = await import('../src/loop/review.js');
   const cell = payroll('budget.xlsx');
   const link = { id: 'd1', projectId: project.id, documentPath: 'memo.md', status: 'STALE', spanText: 'Payroll came to 18400',
     statusDetails: { linkedSourceValue: '18400', currentSourceValue: '19250' },
     source: { projectId: project.id, path: 'budget.xlsx', label: 'Payroll · Amount', valueText: '18400', anchor: cell.anchor } };
 
-  const { shareReviewItems } = await import('../src/ranch/review.js');
+  const { shareReviewItems } = await import('../src/loop/review.js');
   const share = { id: 's1', drifted: true, directoryId: project.id, path: 'budget.xlsx', fileId: 'f', sharedValue: '18400', currentValue: '19250',
-    ...app.ranch.shownValues(project.id, 'budget.xlsx', cell.anchor, { sharedDisplay: '18400', currentDisplay: '19250' }) };
+    ...app.loop.shownValues(project.id, 'budget.xlsx', cell.anchor, { sharedDisplay: '18400', currentDisplay: '19250' }) };
 
   // Act
-  const [changed] = linkReviewItems([link], () => 'f', app.ranch.shownValue);
+  const [changed] = linkReviewItems([link], () => 'f', app.loop.shownValue);
   const [drifted] = shareReviewItems([share]);
 
   // Assert
