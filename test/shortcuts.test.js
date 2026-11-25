@@ -15,6 +15,11 @@ test('every shortcut names its action and the keys for at least one platform', (
   for (const section of catalog.sections) {
     assert.ok(section.title.trim(), 'a section has a title');
     assert.ok(section.shortcuts.length > 0, `${section.title} lists shortcuts`);
+    assert.deepEqual(Object.keys(section).filter((key) => !['title', 'note', 'advanced', 'macApp', 'shortcuts'].includes(key)), [],
+      `${section.title} has no unknown fields`);
+    for (const flag of ['advanced', 'macApp']) {
+      assert.ok(section[flag] === undefined || typeof section[flag] === 'boolean', `${section.title}'s ${flag} is true or false`);
+    }
     const actions = section.shortcuts.map((entry) => entry.action);
     assert.equal(new Set(actions).size, actions.length, `${section.title} lists each action once`);
     for (const entry of section.shortcuts) {
@@ -48,7 +53,9 @@ test('Windows keys spell out modifiers in the order Windows shows them', () => {
 });
 
 test('the suggestion keys each host routes are listed for that host', () => {
-  const suggestions = catalog.sections.find((section) => section.title === 'Suggestions while typing').shortcuts;
+  const suggestions = catalog.sections
+    .filter((section) => ['Suggestions while typing', 'Looking inside a suggestion'].includes(section.title))
+    .flatMap((section) => section.shortcuts);
   const keys = (platform) => suggestions.map((entry) => entry[platform]).filter(Boolean);
   for (const expected of ['⇥', '⌘↩', '⇧⌘↩', '↑↓', 'fn ←', 'fn →', '⌘Z', 'Esc']) assert.ok(keys('macos').includes(expected), expected);
   for (const expected of ['Tab', 'Ctrl+Enter', 'Ctrl+Shift+Enter', '↑↓', 'F4', 'Esc']) assert.ok(keys('windows').includes(expected), expected);
@@ -58,7 +65,17 @@ test('the keys of the switcher that chooses where suggestions come from are list
   const switcher = catalog.sections.find((section) => section.title === 'Choosing where suggestions come from');
   assert.ok(switcher, 'the switcher has its own section');
   const keys = switcher.shortcuts.map((entry) => entry.macos);
-  for (const expected of ['⌥⇥', '⇥ ↓', '⇧⇥ ↑', '↩', 'Esc']) assert.ok(keys.includes(expected), expected);
+  for (const expected of ['⇥', '⇧⇥', '↓', '↑', '↩', 'Esc']) assert.ok(keys.includes(expected), expected);
+  const lasso = catalog.sections.find((section) => section.title === 'Lasso').shortcuts.map((entry) => entry.macos);
+  assert.ok(lasso.includes('⌥⇥'), 'the key that opens the switcher is among Lasso\'s own');
+});
+
+test('the everyday keys come first, and the rest wait under Advanced in the Mac app', () => {
+  const firstAdvanced = catalog.sections.findIndex((section) => section.advanced);
+  assert.ok(firstAdvanced > 0, 'some sections are advanced, after the everyday ones');
+  assert.ok(catalog.sections.slice(0, firstAdvanced).every((section) => !section.advanced && section.macApp !== false));
+  const workspaceOnly = catalog.sections.filter((section) => section.macApp === false).map((section) => section.title);
+  assert.deepEqual(workspaceOnly, ['Workspace', 'Writing in the workspace', 'Linked source details']);
 });
 
 test('each platform sees only its own shortcuts, and empty sections are left out', () => {

@@ -2,20 +2,130 @@
   "sections": [
     {
       "title": "Lasso",
-      "note": "While the Lasso panel or Settings is open. ⇧⌘L works in any app while Lasso runs, and ⌘L works anywhere once Lasso has quit.",
+      "note": "⇧⌘L and ⌥⇥ work in any app while Lasso runs, and ⌘L works anywhere once Lasso has quit.",
       "shortcuts": [
-        { "action": "Open Settings", "macos": "⌘," },
-        { "action": "Open The Loop, from any app", "macos": "⇧⌘L" },
-        { "action": "Lasso Help", "macos": "⌘?" },
-        { "action": "Quit Lasso", "macos": "⌘Q" },
+        { "action": "Open The Loop", "macos": "⇧⌘L" },
+        { "action": "Choose which folder or app suggestions come from", "macos": "⌥⇥" },
+        { "action": "Open Settings, from the Lasso panel", "macos": "⌘," },
+        { "action": "Quit Lasso, which stops suggestions", "macos": "⌘Q" },
         { "action": "Start Lasso again after quitting", "macos": "⌘L" }
       ]
     },
     {
+      "title": "Suggestions while typing",
+      "note": "In any app, while a suggestion card is showing or right after you accept one.",
+      "shortcuts": [
+        { "action": "Accept the suggestion", "macos": "⇥", "windows": "Tab" },
+        { "action": "Choose another suggestion", "macos": "↑↓", "windows": "↑↓" },
+        { "action": "Insert as plain text", "macos": "⌘↩", "windows": "Ctrl+Enter" },
+        { "action": "Share a link to the source", "macos": "⇧⌘↩", "windows": "Ctrl+Shift+Enter" },
+        { "action": "Undo what Lasso just inserted", "macos": "⌘Z" },
+        { "action": "Open the source", "windows": "F4" },
+        { "action": "Dismiss", "macos": "Esc", "windows": "Esc" }
+      ]
+    },
+    {
+      "title": "Looking inside a suggestion",
+      "advanced": true,
+      "note": "While a suggestion card is showing.",
+      "shortcuts": [
+        { "action": "Narrow to the selected source, or go into a sheet's cells", "macos": "fn →" },
+        { "action": "Step back to the previous suggestions", "macos": "fn ←" },
+        { "action": "Move between a sheet's cells, once inside", "macos": "←→↑↓" },
+        { "action": "Back from a sheet's cells to the suggestions", "macos": "Esc" },
+        { "action": "Highlight a spreadsheet's cells to paste as a picture", "macos": "fn ⇥" },
+        { "action": "Choose words from the selected line", "macos": "⇧fn →" },
+        { "action": "Confirm text or link, when Tab asks", "macos": "↩" },
+        { "action": "Accept the suggestion while dictating", "macos": "Say “tab”" }
+      ]
+    },
+    {
+      "title": "Choosing words from a line",
+      "advanced": true,
+      "note": "After ⇧fn → on a sentence, passage or line of code in the suggestion card, or ⇧fn ← to take words off its start.",
+      "shortcuts": [
+        { "action": "Move a word", "macos": "←→" },
+        { "action": "Select a word at a time", "macos": "⇧←→" },
+        { "action": "Select to the start or end", "macos": "⇧⌘←→" },
+        { "action": "Insert the selected words", "macos": "⇥" },
+        { "action": "Back to the suggestions", "macos": "Esc" }
+      ]
+    },
+    {
+      "title": "Highlighting a passage",
+      "advanced": true,
+      "note": "After Tab on a video, deck, PDF, Word or text passage opens its document.",
+      "shortcuts": [
+        { "action": "Move the highlight", "macos": "←→↑↓" },
+        { "action": "Widen the highlight", "macos": "⇧←→↑↓" },
+        { "action": "Insert the highlighted words", "macos": "⇥" },
+        { "action": "Insert them as a link", "macos": "⇧⌘↩" },
+        { "action": "Back to the suggestions", "macos": "Esc" }
+      ]
+    },
+    {
+      "title": "Highlighting cells",
+      "advanced": true,
+      "note": "After fn ⇥ on a spreadsheet or CSV suggestion opens its sheet. Drag to add more highlights.",
+      "shortcuts": [
+        { "action": "Move the latest highlight", "macos": "←→↑↓" },
+        { "action": "Widen the latest highlight", "macos": "⇧←→↑↓" },
+        { "action": "Take back the latest highlight", "macos": "⌘Z" },
+        { "action": "Bring it back", "macos": "⇧⌘Z" },
+        { "action": "Paste a picture of the highlighted cells", "macos": "⇥" },
+        { "action": "Back to the suggestions", "macos": "Esc" }
+      ]
+    },
+    {
+      "title": "Choosing where suggestions come from",
+      "advanced": true,
+      "note": "After ⌥⇥ opens the switcher by the caret. The card then names the one chosen beside ⌥⇥.",
+      "shortcuts": [
+        { "action": "Next folder or app", "macos": "⇥" },
+        { "action": "Previous folder or app", "macos": "⇧⇥" },
+        { "action": "Choose who writes a prompt", "macos": "↓" },
+        { "action": "Back to folders and apps", "macos": "↑" },
+        { "action": "Keep what the switcher shows", "macos": "↩" },
+        { "action": "Keep the one chosen before", "macos": "Esc" }
+      ]
+    },
+    {
+      "title": "Writing with AI",
+      "advanced": true,
+      "note": "Once a writer is chosen in the switcher, a sentence begun with \\ is a prompt for it.",
+      "shortcuts": [
+        { "action": "Hand the prompt to the writer", "macos": "⇥" },
+        { "action": "Stop the writer", "macos": "Esc" },
+        { "action": "Take the answer back", "macos": "⌘Z" }
+      ]
+    },
+    {
+      "title": "Share options",
+      "advanced": true,
+      "note": "While the share options are open.",
+      "shortcuts": [
+        { "action": "Change what is shared", "macos": "←→" },
+        { "action": "Create the link", "macos": "↩" },
+        { "action": "Undo the last mask, mark or chosen excerpt", "macos": "⌘Z" },
+        { "action": "Redo what ⌘Z took back", "macos": "⇧⌘Z" },
+        { "action": "Close", "macos": "Esc" }
+      ]
+    },
+    {
+      "title": "Source preview",
+      "advanced": true,
+      "note": "While a source preview is open.",
+      "shortcuts": [
+        { "action": "Share a link to the source", "macos": "⇥" },
+        { "action": "Close", "macos": "Esc" }
+      ]
+    },
+    {
       "title": "The Loop",
+      "advanced": true,
       "note": "While The Loop is open.",
       "shortcuts": [
-        { "action": "Go to Recent Changes, All Sources, Links, Needs Review or Network", "macos": "⌘1…5" },
+        { "action": "Go to Sources, Recent Changes, Review Changes, Links, Needs Review or Network", "macos": "⌘1…6" },
         { "action": "Search files", "macos": "⌘F" },
         { "action": "Move through the list", "macos": "↑↓" },
         { "action": "Open or close a directory in the sidebar", "macos": "→ ←" },
@@ -29,69 +139,8 @@
       ]
     },
     {
-      "title": "Suggestions while typing",
-      "note": "In any app, while a suggestion card is showing or right after you accept one.",
-      "shortcuts": [
-        { "action": "Accept the suggestion", "macos": "⇥", "windows": "Tab" },
-        { "action": "Accept the suggestion while dictating", "macos": "Say “tab”" },
-        { "action": "Insert as plain text", "macos": "⌘↩", "windows": "Ctrl+Enter" },
-        { "action": "Share a link to the source", "macos": "⇧⌘↩", "windows": "Ctrl+Shift+Enter" },
-        { "action": "Choose another suggestion", "macos": "↑↓", "windows": "↑↓" },
-        { "action": "Confirm text or link, when Tab asks", "macos": "↩", "windows": "Enter" },
-        { "action": "Step back to the previous suggestions (non-table sources)", "macos": "fn ←" },
-        { "action": "Narrow to the selected source (outside table cells)", "macos": "fn →" },
-        { "action": "Move across table columns", "macos": "fn ←→" },
-        { "action": "Move up or down table rows", "macos": "fn ↑↓" },
-        { "action": "Return from table browsing to suggestions", "macos": "Esc" },
-        { "action": "Choose words from the selected line", "macos": "⇧fn →" },
-        { "action": "Undo what Lasso just inserted", "macos": "⌘Z" },
-        { "action": "Open the source", "windows": "F4" },
-        { "action": "Dismiss", "macos": "Esc", "windows": "Esc" }
-      ]
-    },
-    {
-      "title": "Choosing where suggestions come from",
-      "note": "In any app Lasso suggests in. ⌥⇥ opens a small switcher by the caret on the folder or app in use; the card then names the one chosen beside ⌥⇥.",
-      "shortcuts": [
-        { "action": "Open the switcher", "macos": "⌥⇥" },
-        { "action": "Next folder or app", "macos": "⇥ ↓" },
-        { "action": "Previous folder or app", "macos": "⇧⇥ ↑" },
-        { "action": "Suggest only from the one shown, or from every one at All", "macos": "↩" },
-        { "action": "Keep the one chosen before", "macos": "Esc" }
-      ]
-    },
-    {
-      "title": "Choosing words from a line",
-      "note": "After ⇧fn → on a sentence, passage or line of code in the suggestion card, or ⇧fn ← to take words off its start.",
-      "shortcuts": [
-        { "action": "Move a word", "macos": "←→" },
-        { "action": "Select a word at a time", "macos": "⇧←→" },
-        { "action": "Select to the start or end", "macos": "⇧⌘←→" },
-        { "action": "Insert the selected words", "macos": "⇥" },
-        { "action": "Back to the suggestions", "macos": "Esc" }
-      ]
-    },
-    {
-      "title": "Share options",
-      "note": "While the share options are open.",
-      "shortcuts": [
-        { "action": "Change what is shared", "macos": "←→" },
-        { "action": "Create the link", "macos": "↩" },
-        { "action": "Undo the last mask, mark or chosen excerpt", "macos": "⌘Z" },
-        { "action": "Redo what ⌘Z took back", "macos": "⇧⌘Z" },
-        { "action": "Close", "macos": "Esc" }
-      ]
-    },
-    {
-      "title": "Source preview",
-      "note": "While a source preview is open.",
-      "shortcuts": [
-        { "action": "Share a link to the source", "macos": "⇥" },
-        { "action": "Close", "macos": "Esc" }
-      ]
-    },
-    {
       "title": "Workspace",
+      "macApp": false,
       "shortcuts": [
         { "action": "Search", "macos": "⌘K", "windows": "Ctrl+K" },
         { "action": "Command palette", "macos": "⇧⌘P", "windows": "Ctrl+Shift+P" },
@@ -101,6 +150,7 @@
     },
     {
       "title": "Writing in the workspace",
+      "macApp": false,
       "note": "In a document open in the workspace.",
       "shortcuts": [
         { "action": "Save", "macos": "⌘S", "windows": "Ctrl+S" },
@@ -115,6 +165,7 @@
     },
     {
       "title": "Linked source details",
+      "macApp": false,
       "note": "While a linked source's details are open in the workspace.",
       "shortcuts": [
         { "action": "Open the source", "macos": "O", "windows": "O" },

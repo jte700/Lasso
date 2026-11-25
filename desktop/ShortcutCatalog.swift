@@ -3,6 +3,8 @@
 // The list is public/shortcuts.json, which the Windows workspace's Settings
 // shows too, so both platforms describe the same actions. Each entry names
 // its Mac keys and its Windows keys; the Mac shows only entries with Mac keys.
+// A section marked "advanced" waits under Advanced in the Mac's Settings, and
+// one marked "macApp": false (the browser workspace's keys) is left out there.
 
 import Foundation
 
@@ -17,6 +19,10 @@ struct ShortcutCatalog: Decodable, Equatable {
         let title: String
         let note: String?
         let shortcuts: [Entry]
+        /// Niche keys, shown once Advanced is opened.
+        let advanced: Bool?
+        /// False for keys of a screen the Mac app has no way to open.
+        let macApp: Bool?
     }
 
     /// A shortcut as the Mac shows it.
@@ -30,20 +36,22 @@ struct ShortcutCatalog: Decodable, Equatable {
         let title: String
         let note: String?
         let rows: [Row]
+        let advanced: Bool
     }
 
     let sections: [Section]
 
-    /// Sections in their listed order, leaving out any with nothing for the Mac.
+    /// Sections in their listed order, leaving out any with nothing for the Mac app.
     var macSections: [MacSection] {
         sections.compactMap { section in
+            guard section.macApp != false else { return nil }
             let rows = section.shortcuts.compactMap { entry -> Row? in
                 guard let keys = entry.macos, !keys.isEmpty, !entry.action.isEmpty else { return nil }
                 return Row(action: entry.action, keys: keys)
             }
             guard !rows.isEmpty else { return nil }
             let note = section.note.flatMap { $0.isEmpty ? nil : $0 }
-            return MacSection(title: section.title, note: note, rows: rows)
+            return MacSection(title: section.title, note: note, rows: rows, advanced: section.advanced == true)
         }
     }
 

@@ -4,8 +4,8 @@
 // status panel does not already show: appearance and what Tab
 // inserts, with the folder colour, starting at login, the terminal command
 // and the version under Advanced. Apps switches suggestions off in chosen apps. Shortcuts lists
-// every keyboard shortcut Lasso has on the Mac. The first two are SwiftUI
-// grouped forms (SettingsPanes.swift), so they match System Settings.
+// the keyboard shortcuts Lasso has on the Mac, the niche ones under Advanced. All three are
+// SwiftUI grouped forms (SettingsPanes.swift, ShortcutsPane.swift), so they match System Settings.
 
 import Cocoa
 import SwiftUI
@@ -24,9 +24,9 @@ enum SettingsPane: String, CaseIterable {
 
     var symbol: String {
         switch self {
-        case .general: return "gearshape"
-        case .apps: return "app.badge.checkmark"
-        case .shortcuts: return "keyboard"
+        case .general: return "gearshape.2"
+        case .apps: return "app.badge"
+        case .shortcuts: return "command"
         }
     }
 
@@ -49,7 +49,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
     let model: SettingsModel
     private lazy var generalView = Self.host(SettingsGeneralView(model: model).frame(width: Self.contentWidth))
     private lazy var appsView = Self.host(SettingsAppsView(model: model).frame(width: Self.contentWidth))
-    private lazy var shortcutsView = ShortcutsPane.makeView(width: Self.contentWidth)
+    private lazy var shortcutsView = Self.host(SettingsShortcutsView(model: model).frame(width: Self.contentWidth))
     private var pane = SettingsPane.general
 
     /// Runs when the window closes, so the app can leave the Dock again.
@@ -71,7 +71,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         toolbar.displayMode = .iconAndLabel
         toolbar.allowsUserCustomization = false
         window.toolbar = toolbar
-        // Opening Advanced, or adding an app, changes the height the pane needs.
+        // Opening Advanced or the Apps list, or adding an app, changes the height the pane needs.
         model.onResize = { [weak self] in DispatchQueue.main.async { self?.fitWindowToContent() } }
         select(.general)
         model.refresh()
@@ -99,8 +99,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate, NSTo
         }
         if window.contentView !== view { window.contentView = view }
         fitWindowToContent()
-        // The list takes focus so the keyboard can scroll it.
-        if pane == .shortcuts { window.makeFirstResponder(shortcutsView.list) }
     }
 
     @objc private func choosePane(_ sender: NSToolbarItem) {
