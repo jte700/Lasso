@@ -4998,11 +4998,13 @@ do {
         {"action": "Open the source", "windows": "F4"},
         {"action": "Blank", "macos": ""}]},
       {"title": "Windows only", "shortcuts": [{"action": "Open the source", "windows": "F4"}]},
-      {"title": "Mac only", "note": "While Lasso is off.", "shortcuts": [{"action": "Start Lasso", "macos": "⌘L"}]}
+      {"title": "Mac only", "note": "While Lasso is off.", "advanced": true, "shortcuts": [{"action": "Start Lasso", "macos": "⌘L"}]},
+      {"title": "Browser only", "macApp": false, "shortcuts": [{"action": "Save", "macos": "⌘S"}]}
     ]}
     """
     let sections = try ShortcutCatalog.decode(Data(fixture.utf8)).macSections
     check(sections.map(\.title) == ["Both", "Mac only"], "sections with no Mac shortcuts are left out of Settings")
+    check(sections.map(\.advanced) == [false, true], "a section marked advanced waits under Advanced")
     check(sections.first?.rows == [ShortcutCatalog.Row(action: "Search", keys: "⌘K")],
           "Windows-only and keyless shortcuts are left out, and Mac keys are shown")
     check(sections.first?.note == nil && sections.last?.note == "While Lasso is off.",
@@ -5015,6 +5017,15 @@ do {
     let keys = mac.flatMap { $0.rows.map(\.keys) }
     check(mac.first?.title == "Lasso" && keys.contains("⌘,") && keys.contains("⌘L"),
           "the shipped list starts with Lasso's own commands, including ⌘L")
+    let everyday = mac.filter { !$0.advanced }
+    check(everyday.map(\.title) == ["Lasso", "Suggestions while typing"] && mac.prefix(2).allSatisfy { !$0.advanced },
+          "only Lasso's own keys and the suggestion card's everyday keys are shown before Advanced")
+    check(everyday.flatMap(\.rows).map(\.keys).contains("⌥⇥") && everyday.flatMap(\.rows).map(\.keys).contains("⇥"),
+          "Tab and the switcher's ⌥Tab are among the everyday keys")
+    check(!mac.contains { ["Workspace", "Writing in the workspace", "Linked source details"].contains($0.title) },
+          "the browser workspace's keys are left out of the Mac app, which has no way to open it")
+    check(mac.first { $0.title == "The Loop" }?.rows.contains { $0.keys == "⌘1…6" } == true,
+          "The Loop lists a key for each of its six pages")
     check(mac.first?.rows.filter { $0.keys == "⇧⌘L" }.count == 1 && keys.filter { $0 == "⇧⌘L" }.count == 1,
           "⇧⌘L is listed once, for The Loop, since Lasso holds it in every app")
     check(keys.contains("⇥") && keys.contains("⌘↩") && keys.contains("⇧⌘↩") && keys.contains("fn ←"),
@@ -6066,6 +6077,18 @@ do {
     check(!reread.allows("com.apple.Notes") && reread.listed == apps.listed, "choices survive a restart")
     apps.noteTyping(in: "")
     check(!apps.listed.contains(""), "an app with no bundle identifier is not listed")
+}
+
+// Settings > Apps folds its list away once it holds more than a handful of apps.
+do {
+    check(SuggestionAppsFold.startsOpen(count: 0) && SuggestionAppsFold.startsOpen(count: SuggestionAppsFold.shownOpen),
+          "a short list of apps starts open")
+    check(!SuggestionAppsFold.startsOpen(count: SuggestionAppsFold.shownOpen + 1), "a longer list starts folded")
+    check(SuggestionAppsFold.summary(count: 1, off: []) == "1 app", "the folded header counts the apps")
+    check(SuggestionAppsFold.summary(count: 12, off: ["Google Chrome", "Messages"])
+          == "12 apps, off in Google Chrome and Messages", "the folded header names up to two apps switched off")
+    check(SuggestionAppsFold.summary(count: 12, off: ["Google Chrome", "Messages", "Slack"]) == "12 apps, 3 off",
+          "past two apps switched off the header counts them")
 }
 
 // A suggested value's recent change is named in the row's dim detail slot.

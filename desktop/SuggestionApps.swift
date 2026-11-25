@@ -62,3 +62,21 @@ final class SuggestionApps {
         return kept
     }
 }
+
+/// How Settings > Apps folds its list, so a long one never stretches the pane.
+enum SuggestionAppsFold {
+    /// Up to this many apps the list starts open.
+    static let shownOpen = 6
+    /// Past this many apps switched off, the header counts them instead of naming them.
+    private static let namedOff = 2
+
+    static func startsOpen(count: Int) -> Bool { count <= shownOpen }
+
+    /// What the header says beside its title: how many apps, and which are switched off.
+    static func summary(count: Int, off: [String]) -> String {
+        let apps = "\(count) app\(count == 1 ? "" : "s")"
+        if off.isEmpty { return apps }
+        if off.count <= namedOff { return "\(apps), off in \(off.joined(separator: " and "))" }
+        return "\(apps), \(off.count) off"
+    }
+}

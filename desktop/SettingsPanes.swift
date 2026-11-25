@@ -2,7 +2,7 @@
 // like System Settings on each macOS: Liquid Glass on macOS 26, the earlier
 // inset groups before it. General shows the everyday choices; the rest waits
 // under Advanced until someone opens it. Apps holds a switch for every app
-// Lasso has suggested in.
+// Lasso has suggested in, folded away once there are more than a handful.
 
 import Cocoa
 import SwiftUI
@@ -44,6 +44,9 @@ final class SettingsModel: ObservableObject {
     @Published private(set) var version = ""
     @Published private(set) var apps: [SettingsApp] = []
     @Published var advancedOpen = false { didSet { onResize?() } }
+    @Published var advancedShortcutsOpen = false { didSet { onResize?() } }
+    /// Whether the Apps list was opened or closed by hand; until then it is open while short.
+    @Published private var appsChoice: Bool? { didSet { onResize?() } }
 
     private let actions: SettingsActions
     private let suggestionApps: SettingsAppStore
@@ -114,6 +117,16 @@ final class SettingsModel: ObservableObject {
         })
     }
 
+    var appsOpen: Bool { appsChoice ?? SuggestionAppsFold.startsOpen(count: apps.count) }
+
+    var appsOpenChoice: Binding<Bool> {
+        Binding(get: { self.appsOpen }, set: { self.appsChoice = $0 })
+    }
+
+    var appsSummary: String {
+        SuggestionAppsFold.summary(count: apps.count, off: apps.filter { !$0.allowed }.map(\.name))
+    }
+
     func reloadApps() {
         let listed = suggestionApps.listed.map { app($0, allowed: suggestionApps.allows($0)) }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -178,6 +191,8 @@ final class SettingsModel: ObservableObject {
     func addSwitchedOff(_ bundleID: String) {
         suggestionApps.setAllowed(false, for: bundleID)
         reloadApps()
+        // The list opens so the app just added shows with its switch off.
+        appsChoice = true
         onResize?()
     }
 
@@ -291,14 +306,8 @@ struct SettingsGeneralView: View {
     }
 
     /// Collapsed until someone opens it: the default colour, starting at login, the terminal command and the version.
-    @ViewBuilder private var advanced: some View {
-        if #available(macOS 14.0, *) {
-            Section("Advanced", isExpanded: $model.advancedOpen) { advancedRows }
-        } else {
-            Section {
-                DisclosureGroup("Advanced", isExpanded: $model.advancedOpen) { advancedRows }
-            }
-        }
+    private var advanced: some View {
+        SettingsDisclosureSection("Advanced", isExpanded: $model.advancedOpen) { advancedRows }
     }
 
     @ViewBuilder private var advancedRows: some View {
@@ -347,14 +356,14 @@ struct SettingsGeneralView: View {
 struct SettingsAppsView: View {
     @ObservedObject var model: SettingsModel
     private static let iconSize: CGFloat = 20
-    /// Past this many apps the list scrolls inside a fixed height.
+    /// Past this many apps an open list scrolls inside a fixed height.
     private static let scrollingAfter = 9
     private static let scrollingHeight: CGFloat = 520
 
     var body: some View {
-        let scrolls = model.apps.count > Self.scrollingAfter
+        let scrolls = model.appsOpen && model.apps.count > Self.scrollingAfter
         Form {
-            Section {
+            SettingsDisclosureSection(isExpanded: model.appsOpenChoice) {
                 if model.apps.isEmpty {
                     Text("Apps you type in will appear here.")
                         .foregroundStyle(.secondary)
@@ -370,13 +379,22 @@ struct SettingsAppsView: View {
                     .toggleStyle(.switch)
                     .help(app.id)
                 }
-            } header: {
-                Text("Suggest While Typing In")
-            } footer: {
-                HStack(alignment: .top, spacing: 12) {
-                    SettingsFootnote("Lasso adds each app you type in. Switch one off and Lasso stays quiet there and does not read its text.")
-                    Spacer(minLength: 0)
+            } label: {
+                HStack {
+                    Text("Suggest While Typing In")
+                    Spacer()
+                    if !model.apps.isEmpty {
+                        Text(model.appsSummary).font(.callout).fontWeight(.regular)
+                            .foregroundStyle(.secondary).lineLimit(1).truncationMode(.tail)
+                    }
+                }
+            }
+            Section {
+                LabeledContent {
                     addMenu
+                } label: {
+                    SettingsLabel("Add an app",
+                                  note: "Lasso adds each app you type in. Switch one off and Lasso stays quiet there and does not read its text.")
                 }
             }
         }
@@ -415,7 +433,36 @@ struct SettingsAppsView: View {
     }
 }
 
-/// A pull-down button, as System Settings puts under its lists.
+/// A section that folds away under its header, as System Settings' do.
+/// Before macOS 14 sections cannot fold, so the rows sit in a disclosure group instead.
+struct SettingsDisclosureSection<Content: View, Header: View>: View {
+    let isExpanded: Binding<Bool>
+    @ViewBuilder let content: () -> Content
+    @ViewBuilder let label: () -> Header
+
+    init(isExpanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content,
+         @ViewBuilder label: @escaping () -> Header) {
+        self.isExpanded = isExpanded
+        self.content = content
+        self.label = label
+    }
+
+    var body: some View {
+        if #available(macOS 14.0, *) {
+            Section(isExpanded: isExpanded, content: content, header: label)
+        } else {
+            Section { DisclosureGroup(isExpanded: isExpanded, content: content, label: label) }
+        }
+    }
+}
+
+extension SettingsDisclosureSection where Header == Text {
+    init(_ title: String, isExpanded: Binding<Bool>, @ViewBuilder content: @escaping () -> Content) {
+        self.init(isExpanded: isExpanded, content: content) { Text(title) }
+    }
+}
+
+/// A pull-down button, as System Settings puts beside its rows.
 private struct SettingsPullDown: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 14.0, *) {
