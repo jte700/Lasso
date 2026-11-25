@@ -7,8 +7,8 @@ import Cocoa
 enum Loop {
     /// The window's name, in the menu bar panel, the File menu and its title bar.
     static let title = "The Loop"
-    /// ⇧⌘R, which Lasso holds in every app while it runs; menus show it.
-    static let key = "r"
+    /// ⇧⌘L, which Lasso holds in every app while it runs; menus show it.
+    static let key = "l"
     static let modifiers: NSEvent.ModifierFlags = [.command, .shift]
 }
 

@@ -72,7 +72,7 @@ Lasso indexes the folders you choose on your Mac and offers exact values, clause
 - **Cell & passage pickers.** Press `fn Tab` on a spreadsheet or CSV suggestion to open its sheet, drag over non-contiguous cells (`⌘Z` undoes the latest highlight), and press `Tab` to paste them as a formatted table picture with its citation. Press `Tab` on a document, slide or video passage to highlight the exact words before inserting.
 - **Provenance pills.** Inserted values render as pills in their folder's colour. Click any pill to inspect its exact versioned source or swap to another source the card offered; when an underlying file changes, Lasso flags what relied on it without rewriting your document.
 - **AI writer (opt-in).** Choose an AI writer with `⌥Tab ↓` (ChatGPT via your own account). Start any sentence with `\` and press `Tab`: the writer queries your local Lasso index, writes in place with linked source pills, stops on `Esc`, and reverts cleanly on `⌘Z`.
-- **The Loop & Review Changes (`⇧⌘R`).** Lasso's library window in a dark Figtree UI: a live **Recent Changes** audit log (typed cell edits first, recalculated formula cells folded, inline diffs), **Review Changes** (PR-style file tabs for edits since last approval, line/cell/passage comments, Apply edits including `.xls`, `\...` AI edits, Add Reviewers, Approve and Undo), morphing chip search (`⌘F`), active share links, and items needing review.
+- **The Loop & Review Changes (`⇧⌘L`).** Lasso's library window in a dark Figtree UI: a live **Recent Changes** audit log (typed cell edits first, recalculated formula cells folded, inline diffs), **Review Changes** (PR-style file tabs for edits since last approval, line/cell/passage comments, Apply edits including `.xls`, `\...` AI edits, Add Reviewers, Approve and Undo), morphing chip search (`⌘F`), active share links, and items needing review.
 - **Private expiring share links (`⇧⌘↩`).** Share the exact cited part, the whole file, or a redacted/marked-up copy through a 48-hour link on `mylasso.ca`, revocable at any time from The Loop. Only content you explicitly share leaves your Mac.
 - **Dictation, USB drives, source scopes & connected apps.** A voice-wave glass pill follows macOS Dictation and morphs into the card as you speak (say "tab" to accept). Plug in any USB drive and Lasso asks whether to index the drive or chosen folders. Press `⌥Tab` to narrow suggestions to one folder or opt-in connected app (Outlook, Google Calendar, Apple Calendar, Notion, iCal feeds).
 - **Local MCP server for AI agents.** Gives Claude Code, Claude Desktop, Cursor and ChatGPT one local tool over your scoped folders, saving 73% of tokens across 92 live tasks.
@@ -127,7 +127,7 @@ npm start                       # opens local server on http://127.0.0.1:4317
 2. Turn on **Suggest While Typing**, and grant Accessibility access when macOS prompts.
 3. Write in any app. As you type a name, figure, clause or quoted phrase from your files, ghost text and the suggestion card appear by the caret.
 4. Press `Tab` to insert, `↑` `↓` to pick another source, `fn Tab` on a spreadsheet to highlight cells, or `⌥Tab` to narrow to one folder or enable the AI writer.
-5. Press `⇧⌘R` from any app to open **The Loop**: browse every source, inspect recent changes, review edits, and manage shared links.
+5. Press `⇧⌘L` from any app to open **The Loop**: browse every source, inspect recent changes, review edits, and manage shared links.
 
 The [user guide](docs/user-guide.md) covers sharing, redaction, connected apps, USB drives, dictation, and CAD sources in detail.
 
@@ -153,7 +153,7 @@ The [user guide](docs/user-guide.md) covers sharing, redaction, connected apps, 
 
 | Keys | Action |
 | --- | --- |
-| `⇧⌘R` | Open The Loop |
+| `⇧⌘L` | Open The Loop |
 | `⌘L` | Start Lasso again after quitting |
 | `⌘,` | Settings |
 

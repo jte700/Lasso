@@ -66,7 +66,7 @@ enum MainMenu {
         let menu = NSMenu(title: "File")
         menu.addItem(item("Add Work Directories…", commands.addDirectories, target: commands.target))
         menu.addItem(item("Open \(Loop.title)", commands.openLoop, Loop.key, Loop.modifiers, target: commands.target))
-        // Plain ⌘R, The Loop's first key, still works while Lasso is in front.
+        // Plain ⌘L, The Loop's first key, still works while Lasso is in front.
         let firstKey = item("Open \(Loop.title)", commands.openLoop, Loop.key, target: commands.target)
         firstKey.isHidden = true
         firstKey.allowsKeyEquivalentWhenHidden = true

@@ -108,7 +108,7 @@ function messagePage(title, heading, message, label) {
  */
 export function renderMenuBarHome() {
   return messagePage('Lasso', 'Lasso runs from the menu bar',
-    'Suggestions appear while you type in any app. Open The Loop from the menu bar, or press Shift-Command-R, to see your sources.', '');
+    'Suggestions appear while you type in any app. Open The Loop from the menu bar, or press Shift-Command-L, to see your sources.', '');
 }
 
 /// Distinct wording per state, with no hint that other tokens exist.
