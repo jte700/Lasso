@@ -1,6 +1,6 @@
 /* The mascot heroes on Security, Benchmarks and The Loop, centred like the home page's,
    each with a quirk of its own: files that stay inside a ring, a stopwatch that times a
-   real prompt, and a herd wandering a paddock. hero-quirks.js runs the moving parts. */
+   real prompt, and a herd riding round a loop. hero-quirks.js runs the moving parts. */
 
 .page-hero .wrap > .pet { animation: mascot-in 1.2s var(--spring) both; }
 .page-hero .wrap > .pet + * { animation-delay: .3s; }
@@ -62,25 +62,33 @@
 @keyframes clock-blink { 50% { opacity: 0; } }
 @property --p { syntax: "<number>"; inherits: true; initial-value: 0; }
 
-/* The Loop: the herd wanders a fenced paddock; click one and it hops. */
-.paddock { position: relative; width: min(100%, 560px); height: clamp(150px, 19vw, 196px); margin: 0 0 4px; }
-.paddock::before { content: ""; position: absolute; left: 50%; bottom: -10%; width: 70%; aspect-ratio: 2; translate: -50% 0; z-index: -1; border-radius: 50%; pointer-events: none;
-  background: radial-gradient(closest-side, color-mix(in srgb, var(--sky) 22%, transparent), transparent); }
-.paddock-fence { position: absolute; z-index: 2; left: 0; right: 0; bottom: 4px; height: 34px; pointer-events: none; opacity: .7;
-  background: linear-gradient(var(--ink-3) 0 0) 0 9px / 100% 2px no-repeat, linear-gradient(var(--ink-3) 0 0) 0 21px / 100% 2px no-repeat, repeating-linear-gradient(90deg, transparent 0 40px, var(--ink-3) 40px 43px, transparent 43px 70px);
-  -webkit-mask: linear-gradient(90deg, transparent, #000 12% 88%, transparent); mask: linear-gradient(90deg, transparent, #000 12% 88%, transparent); }
-.cow { --w: 74px; position: absolute; bottom: 16px; left: var(--x); width: var(--w); margin-left: calc(var(--w) / -2); padding: 0; border: 0; background: none; cursor: pointer; animation: cow-roam var(--d, 9s) ease-in-out infinite alternate; animation-delay: var(--at, 0s); -webkit-tap-highlight-color: transparent; }
-.cow img { display: block; width: 100%; height: auto; transform-origin: 50% 100%; animation: perch-bob 4.8s ease-in-out infinite; animation-delay: var(--at, 0s); }
-.cow img + img { position: absolute; inset: 0; opacity: 0; }
-.cow.hop { translate: none; }
-.cow.hop img { animation: cow-hop .7s var(--spring); }
-.cow.hop img:first-child { opacity: 0; }
-.cow.hop img + img { opacity: 1; }
-.cow--lead { --w: 112px; z-index: 1; }
-@keyframes cow-roam { from { translate: calc(var(--r, 24px) * -1) 0; } to { translate: var(--r, 24px) 0; } }
-@keyframes cow-hop { 0% { transform: scale(1.1, .86); } 35% { transform: translateY(-38%) scale(.94, 1.08); } 65% { transform: translateY(0) scale(1.08, .9); } 100% { transform: none; } }
+/* The Loop: the herd rides round a loop laid on the ground, the way changes come round
+   to the window, with the lead mascot standing in the middle. A light runs round the
+   ring with them; riders at the back sit smaller and dimmer behind the lead. Click one
+   and it hops. hero-quirks.js moves them. */
+.loop-track { position: relative; width: min(100%, 560px); height: clamp(150px, 19vw, 196px); margin: 0 0 4px; }
+.loop-track::before { content: ""; position: absolute; left: 50%; top: 68%; width: 92%; aspect-ratio: 3; translate: -50% -50%; z-index: -1; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--sky) 20%, transparent), transparent); }
+.loop-ring { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.loop-ring ellipse { fill: none; }
+.loop-ring-base { stroke: var(--ink-3); stroke-width: 2; opacity: .55; }
+.loop-ring-run { stroke: var(--sky); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 16 84; filter: drop-shadow(0 0 6px var(--sky));
+  animation: loop-run var(--lap, 24s) linear infinite; }
+.loop-track.is-held .loop-ring-run { animation-play-state: paused; }
+.rider { --w: 62px; position: absolute; left: var(--x, 50%); top: var(--y, 68%); width: var(--w); padding: 0; border: 0; background: none; cursor: pointer;
+  translate: -50% -94%; scale: var(--s, 1); transform-origin: 50% 94%; opacity: var(--o, 1); -webkit-tap-highlight-color: transparent; }
+.rider::after { content: ""; position: absolute; left: 16%; right: 16%; bottom: 0; height: 10%; border-radius: 50%; z-index: -1; background: radial-gradient(closest-side, rgb(0 0 0 / .45), transparent); }
+:root[data-theme="light"] .rider::after { background: radial-gradient(closest-side, rgb(40 50 20 / .22), transparent); }
+.rider img { display: block; width: 100%; height: auto; transform-origin: 50% 100%; animation: perch-bob 4.8s ease-in-out infinite; animation-delay: calc(var(--phase, 0) * -4.8s); }
+.rider img + img { position: absolute; inset: 0; opacity: 0; }
+.rider.hop img { animation: rider-hop .7s var(--spring); }
+.rider.hop img:first-child { opacity: 0; }
+.rider.hop img + img { opacity: 1; }
+.rider--lead { --w: 100px; --y: 70%; z-index: 10; }
+@keyframes loop-run { from { stroke-dashoffset: 100; } to { stroke-dashoffset: 0; } }
+@keyframes rider-hop { 0% { transform: scale(1.1, .86); } 35% { transform: translateY(-38%) scale(.94, 1.08); } 65% { transform: translateY(0) scale(1.08, .9); } 100% { transform: none; } }
 
 @media (prefers-reduced-motion: reduce) {
-  .pet-face, .vault-ring, .vault-orbit, .vault-arm, .vault-arm .ficon, .vault-lock, .cow, .cow img, .clock-caret { animation: none !important; }
+  .pet-face, .vault-ring, .vault-orbit, .vault-arm, .vault-arm .ficon, .vault-lock, .rider img, .loop-ring-run, .clock-caret { animation: none !important; }
   .vault-lock { opacity: 1; scale: 1; }
 }
