@@ -275,11 +275,15 @@ final class ConnectAppsWindowController: NSObject, NSWindowDelegate, WKNavigatio
         return WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true)
     }()
 
-    func show(serverURL: URL) {
+    /// Shows the window; `provider`, when given, opens that provider's flow,
+    /// at its sign-in setup if no app registration is saved yet.
+    func show(serverURL: URL, starting provider: String? = nil) {
+        let start = provider.flatMap { $0.range(of: "^[a-z0-9-]{1,40}$", options: .regularExpression) != nil ? $0 : nil }
         if let window, self.serverURL == serverURL {
             NSApp.activate(ignoringOtherApps: true)
             window.makeKeyAndOrderFront(nil)
             webView?.evaluateJavaScript("window.lassoConnect?.refresh()")
+            if let start { webView?.evaluateJavaScript("window.lassoConnect?.start('\(start)')") }
             return
         }
         window?.close()
@@ -321,7 +325,9 @@ final class ConnectAppsWindowController: NSObject, NSWindowDelegate, WKNavigatio
         window.contentView = content
         webView = web
         self.window = window
-        web.load(URLRequest(url: serverURL.appendingPathComponent("connect.html")))
+        var page = URLComponents(url: serverURL.appendingPathComponent("connect.html"), resolvingAgainstBaseURL: false)
+        if let start { page?.queryItems = [URLQueryItem(name: "connect", value: start)] }
+        web.load(URLRequest(url: page?.url ?? serverURL.appendingPathComponent("connect.html")))
         window.center()
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -378,7 +384,10 @@ final class ConnectAppsWindowController: NSObject, NSWindowDelegate, WKNavigatio
     /// the Dock; the page draws a plain symbol for the rest.
     private static func appIcons() -> [String: String] {
         var icons: [String: String] = [:]
-        let bundles = ["apple-calendar": "com.apple.iCal", "outlook": "com.microsoft.Outlook", "notion": "notion.id"]
+        let bundles = ["apple-calendar": "com.apple.iCal", "outlook": "com.microsoft.Outlook", "notion": "notion.id",
+                       "google-drive": "com.google.drivefs",
+                       "onedrive": "com.microsoft.OneDrive", "dropbox": "com.getdropbox.dropbox"]
+        // iCloud Drive has no app of its own; the page draws its logo.
         for (provider, bundle) in bundles {
             guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else { continue }
             icons[provider] = pngDataURL(NSWorkspace.shared.icon(forFile: url.path))

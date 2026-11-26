@@ -6,18 +6,63 @@ import crypto from 'node:crypto';
 
 /**
  * `auth` is how a connection is made:
+ *  - folder: a folder already on this computer (iCloud Drive), indexed in place;
  *  - oauth: the user signs in on the provider's own page in their browser,
  *    which redirects back to this computer (RFC 8252). It needs the client
  *    ID of an app registration, built in or entered once in the Connect app.
  *  - token: the user pastes a secret the provider issued to them.
  *  - url: the user pastes a published calendar address.
  *  - native: the Mac app reads the items and hands them to the server.
+ * `cloud` marks a cloud drive, whose files come in as files and which the
+ * apps list as a cloud connector, with its logo, apart from other apps.
  */
+// Cloud drives first, then mail, calendars and pages, as the Connect window lists them.
 export const PROVIDERS = Object.freeze({
+  'google-drive': {
+    id: 'google-drive', name: 'Google Drive', vendor: 'Google', brings: 'Docs and files',
+    description: 'Google Docs, Sheets and Slides, and the PDFs and Office files in your Drive, each kept in its Drive folder.',
+    auth: 'oauth', oauthApp: 'google', symbol: 'folder', cloud: true,
+    scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+    // Files are read whatever their age, so the Connect window asks for no period.
+    period: false, noun: 'file', nouns: 'Files',
+    parts: [
+      { id: 'docs', label: 'Docs, Sheets and Slides', detail: 'Brought in as Word, Excel and PowerPoint files' },
+      { id: 'files', label: 'Files', detail: 'PDFs, Office files, spreadsheets and text Lasso can read' },
+    ],
+  },
+  onedrive: {
+    id: 'onedrive', name: 'OneDrive', vendor: 'Microsoft', brings: 'Files',
+    description: 'The PDFs, Office files and spreadsheets in your OneDrive, personal or Microsoft 365, each kept in its folder.',
+    auth: 'oauth', oauthApp: 'microsoft', symbol: 'cloud', cloud: true,
+    scopes: ['Files.Read.All'],
+    period: false, noun: 'file', nouns: 'Files',
+    parts: [
+      { id: 'files', label: 'Files', detail: 'PDFs, Office files, spreadsheets and text Lasso can read' },
+      // Off until chosen: it asks Microsoft for one more permission, and only work or school accounts have sites.
+      { id: 'sharepoint', label: 'SharePoint libraries', optional: true, scopes: ['Sites.Read.All'],
+        detail: 'The document libraries of SharePoint sites you follow, for work or school accounts' },
+    ],
+  },
+  dropbox: {
+    id: 'dropbox', name: 'Dropbox', vendor: 'Dropbox', brings: 'Files',
+    description: 'The PDFs, Office files and spreadsheets in your Dropbox, and Paper docs as text, each kept in its folder.',
+    auth: 'oauth', oauthApp: 'dropbox', symbol: 'shippingbox', cloud: true,
+    period: false, noun: 'file', nouns: 'Files',
+    parts: [{ id: 'files', label: 'Files', detail: 'PDFs, Office files, spreadsheets, text and Paper docs' }],
+  },
+  // Read where it already is on this Mac, like a work directory, but listed as a cloud drive.
+  icloud: {
+    id: 'icloud', name: 'iCloud Drive', vendor: 'Apple', brings: 'Files on this Mac',
+    description: 'The files in your iCloud Drive, read where they already are on this Mac. Files kept only in iCloud stay there until you download them.',
+    auth: 'folder', platform: 'darwin', symbol: 'icloud', cloud: true,
+    period: false, noun: 'file', nouns: 'Files',
+    parts: [{ id: 'files', label: 'Files', detail: 'PDFs, Office files, spreadsheets and text Lasso can read' }],
+  },
   outlook: {
     id: 'outlook', name: 'Outlook', vendor: 'Microsoft', brings: 'Mail and calendar',
     description: 'Messages and events from Outlook.com, Hotmail or Microsoft 365, read through Microsoft Graph.',
     auth: 'oauth', oauthApp: 'microsoft', symbol: 'envelope',
+    scopes: ['Mail.Read', 'Calendars.Read'],
     parts: [
       { id: 'mail', label: 'Mail', detail: 'Messages in your Inbox, Sent and other folders' },
       { id: 'calendar', label: 'Calendar', detail: 'Events in your Outlook calendars' },
@@ -27,6 +72,7 @@ export const PROVIDERS = Object.freeze({
     id: 'google-calendar', name: 'Google Calendar', vendor: 'Google', brings: 'Events',
     description: 'Events from every Google calendar you can see, read through the Google Calendar API.',
     auth: 'oauth', oauthApp: 'google', symbol: 'calendar',
+    scopes: ['https://www.googleapis.com/auth/calendar.readonly'],
     parts: [{ id: 'calendar', label: 'Calendar', detail: 'Events in the calendars in your list' }],
   },
   'apple-calendar': {
@@ -38,7 +84,7 @@ export const PROVIDERS = Object.freeze({
   notion: {
     id: 'notion', name: 'Notion', vendor: 'Notion', brings: 'Pages and databases',
     description: 'Pages and database entries you share with a Notion integration, read through the Notion API.',
-    auth: 'token', symbol: 'doc.text',
+    auth: 'token', symbol: 'doc.text', noun: 'page', nouns: 'Pages',
     parts: [{ id: 'pages', label: 'Pages', detail: 'Pages and database entries shared with the integration' }],
   },
   ics: {
@@ -70,9 +116,11 @@ const clamp = (value, [low, high], fallback) => {
 export function normalizeSettings(providerId, input = {}) {
   const entry = provider(providerId);
   const known = new Set(entry?.parts.map((part) => part.id) ?? []);
-  const parts = Array.isArray(input.parts) ? input.parts.filter((part) => known.has(part)) : [...known];
+  // A part marked optional is read only once it is chosen.
+  const usual = entry?.parts.filter((part) => !part.optional).map((part) => part.id) ?? [];
+  const parts = Array.isArray(input.parts) ? input.parts.filter((part) => known.has(part)) : usual;
   const settings = {
-    parts: parts.length ? [...new Set(parts)] : [...known],
+    parts: parts.length ? [...new Set(parts)] : usual,
     pastDays: clamp(input.pastDays, RANGE_LIMITS.pastDays, DEFAULT_RANGE.pastDays),
     futureDays: clamp(input.futureDays, RANGE_LIMITS.futureDays, DEFAULT_RANGE.futureDays),
   };
@@ -178,8 +226,7 @@ function fields(rows) {
 /** A file name that is safe on every file system and stays short. */
 export function fileNameFor(item) {
   // A leading dot or tilde would read as a hidden or Office lock file.
-  const title = inline(item.title || 'Untitled').replace(/[\\/:*?"<>|#\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ')
-    .replace(/^[.~\s]+/, '').trim();
+  const title = safeName(item.title || 'Untitled', /[\\/:*?"<>|#\u0000-\u001f]/g);
   const short = title.length > 72 ? `${title.slice(0, 71).trim()}…` : title;
   // Ids such as "…@google.com" share their ends, so the tag is a short hash.
   const tag = crypto.createHash('sha256').update(String(item.id ?? '')).digest('hex').slice(0, 6);
@@ -188,9 +235,41 @@ export function fileNameFor(item) {
 }
 
 const FOLDERS = { message: 'Mail', event: 'Calendar', page: 'Pages' };
+// A name or folder from another app is cut to this many bytes of UTF-8,
+// leaving room under the file system's 255 for " (2)" and an extension.
+const NAME_BYTES = 200;
 
-/** Where the item lives inside the connection's folder. */
-export function relativePathFor(item) {
+/** One name, with no separators, control characters or leading dot or tilde. */
+function safeName(name, unsafe = /[\\/:*?"<>|\u0000-\u001f]/g) {
+  return inline(name).replace(unsafe, ' ').replace(/\s+/g, ' ').replace(/^[.~\s]+/, '').trim();
+}
+
+function shortened(name) {
+  if (Buffer.byteLength(name) <= NAME_BYTES) return name;
+  let kept = '';
+  for (const character of name) {
+    if (Buffer.byteLength(`${kept}${character}…`) > NAME_BYTES) break;
+    kept += character;
+  }
+  return `${kept.trim()}…`;
+}
+
+/**
+ * A file brought in as it is, in its folders in the app: "My Drive/Projects/
+ * Budget.docx", with " (2)" before the extension for a second of that name.
+ */
+function filePathFor(item, copy) {
+  const extension = item.extension ?? '';
+  let base = safeName(item.title);
+  if (extension && base.toLowerCase().endsWith(extension)) base = base.slice(0, -extension.length).trim();
+  const name = `${shortened(base || 'Untitled')}${copy > 1 ? ` (${copy})` : ''}${shortened(extension)}`;
+  return [...(item.folders ?? []).map((folder) => shortened(safeName(folder) || 'Folder')), name].join('/');
+}
+
+/** Where the item lives inside the connection's folder; `copy` tells apart items that would share it. */
+export function relativePathFor(item, copy = 1) {
+  if (item.kind === 'file') return filePathFor(item, copy);
+  if (copy > 1) return relativePathFor({ ...item, id: `${item.id}${copy}` });
   return `${FOLDERS[item.kind] ?? 'Items'}/${fileNameFor(item)}`;
 }
 

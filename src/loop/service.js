@@ -221,6 +221,7 @@ export class LoopService {
         const project = projects.get(connection.projectId);
         return {
           id: project.id, name: connection.name, rootPath: project.rootPath, kind: 'app', symbol: connection.symbol ?? null,
+          provider: connection.provider, cloud: connection.kind === 'cloud',
           active: Boolean(connection.active), available: connection.available !== false, offline: false,
           snapshotId: project.currentSnapshotId, fileCount: connection.itemCount ?? 0,
           issue: connection.issue?.message ?? null, createdAt: added.get(project.id) ?? null, addedAt: added.get(project.id) ?? null,

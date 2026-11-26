@@ -35,7 +35,7 @@ async function request(name, url, { fetchImpl, token, method = 'GET', headers = 
   return response;
 }
 
-const json = async (...args) => (await request(...args)).json();
+export const json = async (...args) => (await request(...args)).json();
 
 function windowOf(settings, now = new Date()) {
   const day = 86_400_000;

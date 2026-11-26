@@ -79,3 +79,29 @@ struct UnansweredTyping {
         since = nil
     }
 }
+
+/// When the card reads the caret after a key. The key reaches Lasso before
+/// the app has moved its caret, so a read at once finds the old place: it
+/// waits a frame for the app to draw. Each key puts the read off to a frame
+/// after itself, but keys that keep coming never put it off past `longest`.
+/// Used from the main thread only.
+struct CaretFollowTiming {
+    /// About one frame: long enough for the app to draw the key it was sent.
+    static let echo: TimeInterval = 0.016
+    /// The most a stream of keys may hold a read back.
+    static let longest: TimeInterval = 0.05
+    private var waitingSince: Date?
+
+    /// How long from `now` to read the caret for the key that just arrived.
+    mutating func keyArrived(at now: Date) -> TimeInterval {
+        let since = waitingSince ?? now
+        waitingSince = since
+        let left = since.addingTimeInterval(Self.longest).timeIntervalSince(now)
+        return max(0, min(Self.echo, left))
+    }
+
+    /// The caret was read: the next key starts a new wait.
+    mutating func read() {
+        waitingSince = nil
+    }
+}

@@ -119,15 +119,21 @@ extension GlobalAssistant {
         }
     }
 
-    /// Moves an already-visible box to follow the caret.
-    /// Follows the caret between refreshes, throttled so fast typing does not
-    /// flood the Accessibility API.
+    /// Moves an already-visible box to follow the caret after a key. The read
+    /// waits a frame for the app to move its caret (CaretFollowTiming), and
+    /// every key gets one, so the card keeps up with fast typing; reads still
+    /// go one at a time (`hostReads`), so a slow host is not flooded.
     func trackCaret() {
         guard popupHost != nil else { return }
-        let stamp = Date()
-        guard stamp.timeIntervalSince(lastTrack) > 0.03 else { return }
-        lastTrack = stamp
-        updateHostPosition()
+        caretFollowRead?.cancel()
+        let read = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.caretFollowRead = nil
+            self.caretFollow.read()
+            self.updateHostPosition()
+        }
+        caretFollowRead = read
+        DispatchQueue.main.asyncAfter(deadline: .now() + caretFollow.keyArrived(at: Date()), execute: read)
     }
 
     /// Follows an editor measured off the main thread.
@@ -178,6 +184,9 @@ extension GlobalAssistant {
     }
 
     func stopTrackingHost() {
+        caretFollowRead?.cancel()
+        caretFollowRead = nil
+        caretFollow.read()
         hostGeneration += 1
         hostReads.dropPending()
         hostTimer?.invalidate()

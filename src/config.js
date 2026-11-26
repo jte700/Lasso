@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RECENT_TOUCH_WINDOW_MS } from './history/blob-store.js';
@@ -26,6 +27,7 @@ function connectorApps() {
     microsoft: { clientId: process.env.LASSO_MICROSOFT_CLIENT_ID || built.microsoft?.clientId || null },
     google: { clientId: process.env.LASSO_GOOGLE_CLIENT_ID || built.google?.clientId || null,
       clientSecret: process.env.LASSO_GOOGLE_CLIENT_SECRET || built.google?.clientSecret || null },
+    dropbox: { clientId: process.env.LASSO_DROPBOX_CLIENT_ID || built.dropbox?.clientId || null },
   };
 }
 
@@ -119,6 +121,12 @@ export function createConfig(overrides = {}) {
     connectorApps: overrides.connectorApps ?? connectorApps(),
     // Pause between Notion requests, within its rate limit.
     notionSpacingMs: overrides.notionSpacingMs ?? 340,
+    // iCloud Drive's folder on a Mac, offered as a cloud drive when it is there.
+    icloudDrivePath: overrides.icloudDrivePath
+      ?? path.join(os.homedir(), 'Library', 'Mobile Documents', 'com~apple~CloudDocs'),
+    platform: overrides.platform ?? process.platform,
+    // Finds and downloads files a cloud drive keeps online alone; tests stand in for macOS here.
+    cloudPlaceholders: overrides.cloudPlaceholders ?? null,
     // A Word document is left this long after its last save before Lasso writes its AI record into it.
     aiRecordSettleMs: wholeNumber(overrides.aiRecordSettleMs, 3000, 0),
   };

@@ -113,7 +113,9 @@ export function describeScanError(error) {
  * enabled. Dirty paths (including directory ancestors) always force a read;
  * explicit checkpoints omit reuseUnchanged and verify every file's bytes.
  * `options.environments`, when given, collects the environment directories
- * skipped, so a watcher can ignore their events too.
+ * skipped, so a watcher can ignore their events too. `options.placeholders`
+ * finds files a cloud drive keeps online alone (cloud-placeholders.js); they
+ * are not read, and `options.cloudOnly` collects their paths.
  */
 export function scanDirectory(rootPath, blobStore, options = {}) {
   return runSync(scanSteps(rootPath, blobStore, options));
@@ -191,6 +193,11 @@ export function* scanSteps(rootPath, blobStore, options = {}) {
   }
   if (!exclude('', true)) yield* list(root);
 
+  // A file a cloud drive keeps online alone is never read: reading it would
+  // download it. It keeps its last recorded version, and is counted.
+  const placeholders = options.placeholders?.find(entries.filter((entry) => entry.kind === 'file' && entry.stat)) ?? new Set();
+  for (const entry of entries) if (placeholders.has(entry.absolutePath)) entry.placeholder = true;
+
   const reuses = (entry) => {
     if (!entry.stat || !options.reuseUnchanged || isDirty(entry.relativePath, dirtyPaths)) return false;
     entry.fingerprint = statFingerprint(entry.stat);
@@ -198,7 +205,7 @@ export function* scanSteps(rootPath, blobStore, options = {}) {
   };
   let total = 0;
   for (const entry of entries) {
-    if (entry.kind !== 'file' || entry.error) continue;
+    if (entry.kind !== 'file' || entry.error || entry.placeholder) continue;
     entry.reused = reuses(entry);
     if (!entry.reused) total += workUnits(entry.stat.size);
   }
@@ -210,6 +217,11 @@ export function* scanSteps(rootPath, blobStore, options = {}) {
       continue;
     }
     const { absolutePath, relativePath, stat } = entry;
+    if (entry.placeholder) {
+      options.cloudOnly?.push(relativePath);
+      carryForward({ code: 'DATALESS' }, relativePath, false);
+      continue;
+    }
     if (entry.error) {
       failures.push({ path: relativePath, ...describeScanError(entry.error) });
       carryForward(entry.error, relativePath, false);

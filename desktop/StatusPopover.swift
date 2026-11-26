@@ -63,7 +63,12 @@ private final class StatusCommandButton: NSButton {
         }
         let color: NSColor = isEnabled ? .labelColor : .disabledControlTextColor
         let symbol = symbolName.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) } ?? image
-        if let symbol {
+        if symbolName == nil, let logo = image, !logo.isTemplate {
+            // A picture in its own colours, such as a cloud drive's logo, is drawn as it is, never tinted.
+            let side: CGFloat = 16
+            logo.draw(in: NSRect(x: 14, y: (bounds.height - side) / 2, width: side, height: side),
+                      from: .zero, operation: .sourceOver, fraction: isEnabled ? 1 : 0.4, respectFlipped: true, hints: nil)
+        } else if let symbol {
             let configured = symbol.withSymbolConfiguration(.init(pointSize: 12, weight: symbolName == nil ? .regular : .semibold)) ?? symbol
             let tinted = configured.tinted(isEnabled ? (symbolName == nil ? .secondaryLabelColor : .labelColor) : .disabledControlTextColor)
             let size = tinted.size
@@ -535,6 +540,7 @@ final class StatusPopoverController {
                         existing.issue = fresh.issue
                         existing.onFix = fresh.onFix
                         existing.contextActions = fresh.contextActions
+                        existing.extraActions = fresh.extraActions
                         // The same row keeps counting from where it was.
                         existing.progress = fresh.progress
                         row = existing

@@ -144,7 +144,7 @@ struct LoopSourcesPage: View {
     }
 
     private func place(_ directory: LoopDirectory) -> String {
-        var parts = [directory.isApp ? "Connected app" : (directory.rootPath as NSString).abbreviatingWithTildeInPath]
+        var parts = [directory.isApp ? directory.placeText : (directory.rootPath as NSString).abbreviatingWithTildeInPath]
         if !directory.active {
             parts.append("Paused: suggestions are off for this directory")
         } else if directory.offline {

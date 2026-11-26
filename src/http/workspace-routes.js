@@ -27,6 +27,13 @@ export async function workspaceRoutes({ request, response, url, pathname, worksp
         const body = await readJson(request);
         return sendJson(response, 200, await workspace.fixIssue(fix[0], actorFrom(body)));
       }
+      // Downloads the folder's files kept only in the cloud, then reads them; the answer does not wait.
+      const download = match(pathname, /^\/api\/workspace\/directories\/([^/]+)\/download$/);
+      if (request.method === 'POST' && download) {
+        const { requested, finished } = workspace.startCloudDownload(download[0]);
+        finished.catch((error) => console.error('Downloading cloud files failed:', error.message));
+        return sendJson(response, 202, { requested });
+      }
       const directory = match(pathname, /^\/api\/workspace\/directories\/([^/]+)$/);
       if (request.method === 'POST' && directory) {
         const body = await readJson(request);

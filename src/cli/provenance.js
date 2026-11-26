@@ -13,6 +13,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
+import { provider as connectedProvider } from '../connections/providers.js';
 import { isWholeFile } from '../dependencies/file-reference.js';
 import { numericDescriptor } from '../dependencies/value-match.js';
 import { EVERYDAY_WORDS } from '../dependencies/everyday-words.js';
@@ -106,7 +107,11 @@ export class Provenance {
     const folders = this.folders().map((folder) => {
       const stats = this.db.prepare(`SELECT COUNT(*) AS events, MIN(occurred_at) AS first, MAX(occurred_at) AS last
         FROM timeline_events WHERE project_id = ? AND source NOT IN ('REINDEX', 'AI_RECORD')`).get(folder.id);
+      // A connected app's folder is Lasso's own copy; it is named by its app, not that path.
+      const connection = this.db.prepare('SELECT provider FROM app_connections WHERE project_id = ?').get(folder.id);
       return { id: folder.id, name: folder.name, rootPath: folder.rootPath, version: folder.currentVersion,
+        app: connection ? connectedProvider(connection.provider)?.name ?? connection.provider : null,
+        cloud: Boolean(connection && connectedProvider(connection.provider)?.cloud),
         files: folder.currentSnapshotId ? this.timeline.files.count(folder.currentSnapshotId) : 0,
         events: stats.events, firstAt: stats.first, lastAt: stats.last };
     });

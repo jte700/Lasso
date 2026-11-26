@@ -80,9 +80,17 @@ extension LoopDirectory {
 
     /// The connected app's own symbol, a drive while it is disconnected, or a folder.
     var sidebarSymbol: String {
+        if isApp, let logo = ConnectorLogo.symbolName(for: provider) { return logo }
         if isApp, let symbol, NSImage(systemSymbolName: symbol, accessibilityDescription: nil) != nil { return symbol }
         if isApp { return "app" }
         return offline ? "externaldrive" : "folder"
+    }
+
+    /// Where the source lives, as a person would say it: a folder's path, or
+    /// what kind of connection it is. A connection's folder is Lasso's own copy.
+    var placeText: String {
+        guard isApp else { return rootPath }
+        return cloud == true ? "Cloud drive" : "Connected app"
     }
 
     /// The same symbol, filled where it has a filled form.

@@ -8,6 +8,7 @@ import { classifyPathChange, normalizeProjectRootPath } from './project-paths.js
 import { isIgnoredScanPath, scanSteps, scannedFile } from './scanner.js';
 import { runSliced, runSync } from './work.js';
 import { isTrackedFile } from './file-types.js';
+import { macPlaceholders } from './cloud-placeholders.js';
 import { compactStructuredDiff, createStructuredDiff, deterministicEventTitle, expandStructuredDiff } from './diff.js';
 import { SnapshotFileStore } from './snapshot-store.js';
 import { ObjectVersionStore } from './object-versions.js';
@@ -74,6 +75,10 @@ export class TimelineService {
     this.verifiedStats = new VerifiedFileStats(db);
     // Environment directories each project's last scan skipped, by project.
     this.environments = new Map();
+    // Files each folder's cloud drive keeps online alone, by relative path,
+    // as the last scan found them; they are not read until downloaded.
+    this.cloudOnly = new Map();
+    this.placeholders = config.cloudPlaceholders ?? macPlaceholders;
     // Watcher captures in progress, by project: one per folder at a time.
     this.capturing = new Map();
     // Captures and imports reading right now, of any kind (capture-tracking.js).
@@ -109,8 +114,9 @@ export class TimelineService {
       }
     }
     const environments = new Set();
+    const cloudOnly = [];
     const files = yield* scanSteps(project.rootPath, this.blobs, {
-      exclude, failures, fileCache: cache, environments,
+      exclude, failures, fileCache: cache, environments, cloudOnly, placeholders: this.placeholders,
       // A save the watcher heard, or Lasso writing its AI record into one file, reads only the files named.
       reuseUnchanged: (['WATCHER', 'AI_RECORD'].includes(options.source) && Array.isArray(options.dirtyPaths))
         || options.source === 'OPEN_RECONCILE',
@@ -118,6 +124,7 @@ export class TimelineService {
       previousFiles: options.previousFiles,
     });
     this.environments.set(project.id, environments);
+    this.cloudOnly.set(project.id, cloudOnly);
     this.drives?.assertOnline(project.id);
     if (this.drives?.projectState(project.id).removableDriveId && failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) {
       throw new HttpError(409, 'The drive changed or became unreadable during indexing. Its last complete snapshot was kept.');
@@ -164,6 +171,7 @@ export class TimelineService {
     this.pendingTimers.clear();
     this.pendingPaths.clear();
     this.scanCaches.clear();
+    this.cloudOnly.clear();
     this.verifiedStats.clear();
     this.files.clear();
     this.objectVersions.clear();
@@ -247,7 +255,9 @@ export class TimelineService {
     if (options.driveId) this.drives.assertDrive(options.driveId);
     const fileCache = new Map();
     const environments = new Set();
-    const scanned = yield* scanSteps(realRoot, this.blobs, { failures, fileCache, environments, exclude: this.scanExclusion(realRoot) });
+    const cloudOnly = [];
+    const scanned = yield* scanSteps(realRoot, this.blobs, { failures, fileCache, environments, cloudOnly,
+      placeholders: this.placeholders, exclude: this.scanExclusion(realRoot) });
     if (options.driveId) {
       this.drives.assertDrive(options.driveId);
       if (failures.some(failure => ['DISAPPEARED', 'DEVICE_UNAVAILABLE'].includes(failure.code) || failure.path === '.')) throw new HttpError(409, 'The drive became unavailable during indexing. Reconnect it and try again.');
@@ -291,6 +301,7 @@ export class TimelineService {
     if (options.driveId) this.scanPolicy?.recordFailures?.(projectId, failures);
     this.scanCaches.set(projectId, fileCache);
     this.environments.set(projectId, environments);
+    this.cloudOnly.set(projectId, cloudOnly);
     const result = { project: this.getProject(projectId), imported: true, event: this.getEvent(eventId) };
     // As for a capture: index the new folder before listeners ask it for objects.
     if (options.prepare) yield* options.prepare(result);

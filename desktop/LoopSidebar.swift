@@ -192,14 +192,14 @@ struct LoopSidebar: View {
                      },
                      turn: store.canToggleFolders && !branch.tree.isEmpty ? { toggle(key) } : nil) { _ in
             if directory.isApp {
-                Image(systemName: directory.sidebarSymbol).font(.system(size: 13.5)).foregroundStyle(directory.color)
+                LassoSymbol(name: directory.sidebarSymbol, size: 13.5).foregroundStyle(directory.color)
             } else {
                 LoopTreeFolderIcon(open: branch.open, tint: directory.color)
             }
         } trailing: {
             directoryNotes(directory)
         }
-        .help(directory.rootPath)
+        .help(directory.placeText)
         .contextMenu { LoopDirectoryMenu(store: store, directory: directory) }
         ForEach(Array(branch.rows.enumerated()), id: \.element.id) { index, row in
             outlineRow(row, in: directory, position: index)

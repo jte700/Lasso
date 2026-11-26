@@ -138,7 +138,9 @@ final class GlobalAssistant {
     var screenCaretRereads = (text: "", left: 0)
     private static let restoreWait: TimeInterval = 1
     var messageShownAt = Date.distantPast
-    var lastTrack = Date.distantPast
+    /// The caret read waiting for the app to draw the latest key.
+    var caretFollowRead: DispatchWorkItem?
+    var caretFollow = CaretFollowTiming()
     var popupHost: AssistPopupHost?
     var popupCaret: CGRect?
     /// Changes whenever the tracked editor changes or tracking stops, so a

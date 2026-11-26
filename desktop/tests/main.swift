@@ -4308,6 +4308,21 @@ do {
     check(!gate.end(), "dismissing the box drops a follow-up that would reopen it")
 }
 
+print("the card follows the caret a frame after each key")
+do {
+    var follow = CaretFollowTiming()
+    let start = Date(timeIntervalSinceReferenceDate: 2000)
+    check(follow.keyArrived(at: start) == CaretFollowTiming.echo,
+          "a key reads the caret once the app has drawn it, not before")
+    check(follow.keyArrived(at: start.addingTimeInterval(0.01)) == CaretFollowTiming.echo,
+          "a quick second key waits for its own caret too")
+    let late = follow.keyArrived(at: start.addingTimeInterval(0.045))
+    check(abs(late - 0.005) < 0.0001, "keys that keep coming never hold the card back past the longest wait")
+    follow.read()
+    check(follow.keyArrived(at: start.addingTimeInterval(0.2)) == CaretFollowTiming.echo,
+          "after a read the next key starts its wait over")
+}
+
 print("a list the writer types past without a new answer closes")
 do {
     var typing = UnansweredTyping(limit: 0.5)
@@ -7311,6 +7326,33 @@ do {
     check(!ClosingClick(closedAt: closed).isSameClick(at: closed.addingTimeInterval(1)),
           "a later click on the icon opens the panel")
     check(!ClosingClick(closedAt: nil).isSameClick(at: closed), "the first click opens the panel")
+}
+
+print("the panel offers the cloud drives not connected yet")
+do {
+    let state: [String: Any] = ["cloudDrives": [
+        ["provider": "google-drive", "name": "Google Drive", "connected": true, "available": true, "signIn": "browser"],
+        ["provider": "onedrive", "name": "OneDrive", "connected": false, "available": true, "signIn": "browser"],
+        ["provider": "dropbox", "name": "Dropbox", "connected": false, "available": true, "signIn": "setup"],
+        ["provider": "icloud", "name": "iCloud Drive", "connected": false, "available": true, "signIn": "none"],
+        ["name": "No provider"],
+    ]]
+    let offers = CloudDriveOffer.listed(state)
+    check(offers.count == 4, "an offer without a provider is left out")
+    let open = CloudDriveOffer.unconnected(offers)
+    check(open.map(\.provider) == ["onedrive", "dropbox", "icloud"], "a connected drive is not offered again")
+    check(open.map(\.step) == [.signIn, .setUp, .addFolder],
+          "a ready sign-in goes to the browser, a missing registration to setup, iCloud Drive straight in")
+    check(open[0].title == "Connect OneDrive\u{2026}", "each row is named after its drive")
+    let missing = CloudDriveOffer(provider: "icloud", name: "iCloud Drive", connected: false, available: false, signIn: .none)
+    check(CloudDriveOffer.unconnected([missing]).isEmpty, "iCloud Drive is not offered where its folder is missing")
+    check(CloudDriveOffer.listed([:]).isEmpty, "an older server offers nothing")
+    check(ConnectorLogo.symbolName(for: "icloud") == "logo:icloud", "iCloud Drive has a logo of its own")
+    check(ConnectorLogo.image(for: "icloud", size: 16)?.isTemplate == false, "the iCloud logo keeps its colours")
+    check(CloudOnlyFiles.note(0, in: "iCloud") == nil, "a folder with every file here says nothing")
+    check(CloudOnlyFiles.note(1, in: "iCloud") == "1 file is only in iCloud, not on this Mac, so Lasso has not read it.",
+          "one file only in iCloud is worded as one")
+    check(CloudOnlyFiles.action(3) == "Download 3 Files to This Mac", "the row offers to download them")
 }
 
 print(failures == 0 ? "\(checks) checks passed" : "\(failures) of \(checks) checks FAILED")

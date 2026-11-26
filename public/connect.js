@@ -312,6 +312,16 @@
     outlook: '<svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m3.8 7 8.2 6 8.2-6"/></svg>',
     'google-calendar': '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>',
     'apple-calendar': '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>',
+    // Cloud drives are drawn as their own logos, as the Mac app draws them (ConnectorLogo.swift).
+    'google-drive': '<svg viewBox="0 0 24 24"><path style="fill:#00ac47" d="M8.67 4 12 9.8 5.33 20.4 2 14.8z"/>'
+      + '<path style="fill:#2684fc" d="M5.33 20.4h13.34L22 14.8H8.67z"/><path style="fill:#ffba00" d="M8.67 4h6.66L22 14.8h-6.67z"/></svg>',
+    onedrive: '<svg viewBox="0 0 24 24"><circle style="fill:#0364b8" cx="13.6" cy="11" r="5.4"/><circle style="fill:#0364b8" cx="7.6" cy="14" r="3.6"/>'
+      + '<circle style="fill:#1490df" cx="18" cy="14.4" r="3.4"/><rect style="fill:#1490df" x="7.6" y="12.4" width="10.4" height="5.4" rx="1"/>'
+      + '<circle style="fill:#1490df" cx="13.6" cy="11.4" r="4.4"/></svg>',
+    icloud: '<svg viewBox="0 0 24 24"><defs><linearGradient id="icloud-sky" x1="0" y1="0" x2="0" y2="1">'
+      + '<stop offset="0" stop-color="#5ac8fa"/><stop offset="1" stop-color="#0a84ff"/></linearGradient></defs>'
+      + '<path style="fill:url(#icloud-sky)" d="M6.5 18h11a4 4 0 0 0 .4-7.98A5.5 5.5 0 0 0 7.6 8.6 4.75 4.75 0 0 0 6.5 18z"/></svg>',
+    dropbox: '<svg viewBox="0 0 24 24"><path style="fill:#0061fe" d="M7.4 3.8000000000000003l4.2 2.6-4.2 2.6-4.2-2.6z"/><path style="fill:#0061fe" d="M16.6 3.8000000000000003l4.2 2.6-4.2 2.6-4.2-2.6z"/><path style="fill:#0061fe" d="M7.4 9.4l4.2 2.6-4.2 2.6-4.2-2.6z"/><path style="fill:#0061fe" d="M16.6 9.4l4.2 2.6-4.2 2.6-4.2-2.6z"/><path style="fill:#0061fe" d="M12 15.200000000000001l4.2 2.6-4.2 2.6-4.2-2.6z"/></svg>',
     notion: '<svg viewBox="0 0 24 24"><path d="M6 3.5h8.5L19 8v12.5H6z"/><path d="M14.5 3.5V8H19M9 12h7M9 15h7M9 18h4.5"/></svg>',
     ics: '<svg viewBox="0 0 24 24"><path d="M5 12a7 7 0 0 1 7-7M5 12a7 7 0 0 0 7 7M8.5 12A3.5 3.5 0 0 1 12 8.5"/><circle cx="12" cy="12" r="1.2"/><path d="M15 9l4-4M19 5h-3M19 5v3"/></svg>',
   };
@@ -425,8 +435,11 @@
           h('div', { class: 'row compact' }, h('span', { class: 'label-text' }, 'Items'), h('span', { class: 'sub' }, plural(connection.itemCount, 'item'))),
           h('div', { class: 'row compact' }, h('span', { class: 'label-text' }, 'Last synced'), h('span', { class: 'sub' }, since(connection.lastSyncedAt)))),
         connection.status === 'error' ? h('p', { class: 'error' }, connection.error) : null,
+        connection.onlyInCloud ? h('p', { class: 'help' }, `${plural(connection.onlyInCloud, 'file')} ${connection.onlyInCloud === 1 ? 'is' : 'are'} only in iCloud, not on this Mac, so Lasso has not read ${connection.onlyInCloud === 1 ? 'it' : 'them'}.`,
+          h('br'), button('Download to This Mac', (event) => downloadCloudFiles(connection, event.currentTarget))) : null,
         h('p', { class: 'help' }, connection.provider === 'apple-calendar'
           ? 'Lasso reads these calendars again whenever their events change.'
+          : entry?.auth === 'folder' ? 'Lasso reads these files where they are, as they change.'
           : 'Lasso reads this app again every 30 minutes while it is switched on.'),
       ],
       footer: [
@@ -450,9 +463,19 @@
     } finally { setTimeout(poll, 200); }
   }
 
+  /** Has macOS bring a connection's files kept only in iCloud to this Mac, then reads them. */
+  async function downloadCloudFiles(connection, target) {
+    const restore = busy(target, 'Downloading…');
+    try { await api(`/api/workspace/directories/${encodeURIComponent(connection.projectId)}/download`, { method: 'POST' }); }
+    catch (error) { restore(); alert(error.message); return; }
+    setTimeout(poll, 200);
+  }
+
   async function disconnect(connection) {
-    const confirmed = await confirmAction(`Disconnect ${connection.name}?`,
-      'Lasso stops reading it and removes the copy of its items from this Mac. Nothing changes in the app itself, and you can connect it again any time.',
+    const inPlace = providerOf(connection.provider)?.auth === 'folder';
+    const confirmed = await confirmAction(`Disconnect ${connection.name}?`, inPlace
+      ? 'Lasso stops reading it and forgets what it indexed. Your files stay in iCloud Drive, and you can connect it again any time.'
+      : 'Lasso stops reading it and removes the copy of its items from this Mac. Nothing changes in the app itself, and you can connect it again any time.',
       'Disconnect');
     if (!confirmed) return;
     try { await api(`/api/connections/${encodeURIComponent(connection.id)}`, { method: 'DELETE' }); }
@@ -466,12 +489,13 @@
 
   // ---------- connect flows ----------
 
-  const FIRST = { oauth: 'choose', token: 'secret', url: 'address', native: 'access' };
+  const FIRST = { oauth: 'choose', token: 'secret', url: 'address', native: 'access', folder: 'folder' };
 
+  /** A part marked optional, such as SharePoint, starts unticked: it asks for more. */
   function flowStart(providerId) {
     const entry = providerOf(providerId);
     return { name: 'flow', provider: providerId, step: FIRST[entry.auth],
-      settings: { parts: entry.parts.map((part) => part.id), pastDays: 30, futureDays: 90 } };
+      settings: { parts: entry.parts.filter((part) => !part.optional).map((part) => part.id), pastDays: 30, futureDays: 90 } };
   }
 
   /** Leaving a sign-in that never finished leaves nothing behind. */
@@ -485,7 +509,7 @@
   function flowScreen() {
     const screen = state.screen, entry = providerOf(screen.provider);
     const built = ({
-      choose: choose, setup: setup, waiting: waiting, secret: secret, address: address,
+      choose: choose, setup: setup, waiting: waiting, secret: secret, address: address, folder: folder,
       access: access, denied: denied, calendars: calendars, syncing: syncing, done: done,
     })[screen.step] ?? failed;
     const { body: content, footer } = built(entry, screen);
@@ -535,7 +559,8 @@
       body: [
         hero(entry, `Connect ${entry.name}`, `${entry.description} Lasso never changes or sends anything there.`),
         h('p', { class: 'section' }, 'Bring In'), h('div', { class: 'group' }, parts),
-        h('p', { class: 'section' }, 'Period'), periodRows(settings, { past: mail ? 'Mail and past events' : 'Past events', future: 'Upcoming events' }),
+        entry.period === false ? null : h('p', { class: 'section' }, 'Period'),
+        entry.period === false ? null : periodRows(settings, { past: mail ? 'Mail and past events' : 'Past events', future: 'Upcoming events' }),
         signIn.configured ? null : h('p', { class: 'help' }, `First, Lasso needs your ${signIn.appName} app registration.`),
         errorNote(screen.error),
       ],
@@ -543,10 +568,35 @@
     };
   }
 
+  // iCloud Drive: a folder already on this Mac, connected in one step.
+  function folder(entry, screen) {
+    const connect = button('Connect', async (event) => {
+      const restore = busy(event.currentTarget, 'Connecting…');
+      try {
+        const { connection } = await api('/api/connections', { method: 'POST', body: { provider: entry.id } });
+        await load();
+        go({ ...screen, step: 'syncing', connectionId: connection.id, error: null });
+        native('connected', { id: connection.id }).catch(() => {});
+      } catch (error) { restore(); go({ ...screen, error: error.message }); }
+    }, 'default');
+    return {
+      body: [
+        hero(entry, `Connect ${entry.name}`, `${entry.description} Lasso never changes anything there.`),
+        h('p', { class: 'help' }, 'Nothing is copied or uploaded: Lasso reads the files where they are. A file kept only in iCloud is not downloaded until you ask, from its row in the Lasso menu.'),
+        errorNote(screen.error),
+      ],
+      footer: [cancel(), connect],
+    };
+  }
+
+  // What each provider's client ID looks like, as its console shows it.
+  const CLIENT_ID_HINTS = { microsoft: '00000000-0000-0000-0000-000000000000', google: '….apps.googleusercontent.com',
+    dropbox: 'App key' };
+
   function setup(entry, screen) {
     const signIn = entry.signIn;
     const clientId = h('input', { class: 'field-input mono', autocomplete: 'off', spellcheck: 'false', 'aria-label': 'Client ID',
-      placeholder: signIn.app === 'microsoft' ? '00000000-0000-0000-0000-000000000000' : '….apps.googleusercontent.com' });
+      placeholder: CLIENT_ID_HINTS[signIn.app] ?? '' });
     const secretInput = signIn.needsSecret ? h('input', { class: 'field-input mono', type: 'password', autocomplete: 'off', 'aria-label': 'Client secret' }) : null;
     const copy = button('Copy', async () => {
       try { await navigator.clipboard.writeText(signIn.redirectUri); copy.textContent = 'Copied'; } catch { copy.textContent = 'Select to Copy'; }
@@ -722,7 +772,7 @@
     const connection = connectionOf(screen.connectionId);
     const percent = connection?.indexing?.percent ?? 0;
     const reading = !connection?.indexing || connection.indexing.phase === 'fetching';
-    const what = entry.id === 'notion' ? 'Pages' : entry.parts.length > 1 ? 'Mail and Events' : 'Events';
+    const what = entry.nouns ?? (entry.parts.length > 1 ? 'Mail and Events' : 'Events');
     const bar = reading && percent < 6 ? h('progress', { 'aria-label': 'Progress' }) : h('progress', { max: '100', value: String(percent), 'aria-label': 'Progress' });
     return {
       body: [h('div', { class: 'status' }, h('h3', {}, `Bringing In Your ${what}`),
@@ -738,8 +788,8 @@
       body: [h('div', { class: 'status' },
         h('span', { class: 'done-mark', html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12.5l4 4 8-9"/></svg>' }),
         h('h3', {}, `${entry.name} Is Connected`),
-        h('p', {}, `${connection?.name ?? entry.name} · ${plural(connection?.itemCount ?? 0, entry.id === 'notion' ? 'page' : 'item')}.`),
-        h('p', {}, 'It’s listed under Connected Apps in the Lasso menu, where you can switch it off like a folder.'))],
+        h('p', {}, `${connection?.name ?? entry.name} · ${plural(connection?.itemCount ?? 0, entry.noun ?? 'item')}.`),
+        h('p', {}, `It’s listed under ${entry.cloud ? 'Cloud Drives' : 'Connected Apps'} in the Lasso menu, where you can switch it off like a folder.`))],
       footer: [button('Done', closeSheet, 'default')],
     };
   }
@@ -770,13 +820,28 @@
   }
   document.getElementById('back').addEventListener('click', back);
   addEventListener('keydown', (event) => { if (event.key === 'Escape' && !sheet.hidden) back(); });
-  // The Mac app asks the page to show the latest state when it is brought forward.
-  window.lassoConnect = { refresh: () => poll() };
+  /**
+   * Opens one provider's flow, as the menu's Cloud Drives rows ask: at the
+   * setup of its sign-in when no app registration is saved yet.
+   */
+  async function start(providerId) {
+    if (!state.catalog.length) await load().catch(() => {});
+    const entry = state.catalog.find((candidate) => candidate.id === providerId);
+    if (!entry) return;
+    const first = flowStart(providerId);
+    openSheet(entry.auth === 'oauth' && !entry.signIn?.configured ? { ...first, step: 'setup' } : first);
+  }
+
+  // The Mac app asks the page to show the latest state when it is brought
+  // forward, and to open a provider's flow; the address can name one too.
+  window.lassoConnect = { refresh: () => poll(), start };
+  const asked = new URLSearchParams(location.search).get('connect');
+
 
   setWidth(WORDS[0]);
   // Figtree arrives after the first measure; the word's box is measured again in it.
   document.fonts?.ready.then(() => { if (!cycle.index) setWidth(WORDS[0]); });
   startCycle();
-  load().then(() => { renderApps(); schedule(); }).catch(() => schedule());
+  load().then(() => { renderApps(); schedule(); if (asked) start(asked); }).catch(() => schedule());
   if (bridge) native('appIcons').then((icons) => { state.icons = icons ?? {}; renderApps(); if (!sheet.hidden) render({ quiet: true }); }).catch(() => {});
 })();

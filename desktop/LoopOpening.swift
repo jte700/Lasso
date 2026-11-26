@@ -438,7 +438,7 @@ private struct LoopDirectoryStepRow: View {
                 .frame(width: 24, height: 24)
                 .scaleEffect(ticked ? 1 : 0.92)
                 .opacity(directory.isApp ? 0.55 : 1)
-                Image(systemName: directory.filledSymbol).font(.system(size: 17)).foregroundStyle(color).frame(width: 24)
+                LassoSymbol(name: directory.filledSymbol, size: 17).foregroundStyle(color).frame(width: 24)
                     .opacity(ticked ? 1 : 0.5)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(directory.name).font(LoopLook.font(15, .medium))

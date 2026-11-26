@@ -295,10 +295,13 @@ private struct WorkDirectory {
     /// Chosen and being read, but not recorded yet.
     let pending: Bool
     let fileCount: Int
+    /// Files its cloud drive keeps online alone, which Lasso has not read.
+    let onlyInCloud: Int
 
     init?(_ object: [String: Any]) {
         guard let id = object["id"] as? String,
               let rootPath = object["rootPath"] as? String else { return nil }
+        self.onlyInCloud = (object["onlyInCloud"] as? NSNumber)?.intValue ?? 0
         self.id = id
         self.rootPath = rootPath
         self.name = object["name"] as? String ?? (rootPath as NSString).lastPathComponent
@@ -338,6 +341,10 @@ private struct ConnectedApp {
     let settings: [String: Any]
     /// Written by an earlier Lasso, so it is read again in the current format.
     let outdated: Bool
+    /// "cloud" for a cloud drive, "app" for mail, calendars and pages.
+    let kind: String
+    /// Files iCloud keeps online alone, which Lasso has not read.
+    let onlyInCloud: Int
 
     private static let dates: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
@@ -360,13 +367,19 @@ private struct ConnectedApp {
         progress = DirectoryProgress(object["indexing"])
         settings = object["settings"] as? [String: Any] ?? [:]
         outdated = object["outdated"] as? Bool ?? false
+        kind = object["kind"] as? String ?? "app"
+        onlyInCloud = (object["onlyInCloud"] as? NSNumber)?.intValue ?? 0
     }
 
     /// Signing in, reading the app or indexing what it read.
     var isBusy: Bool { status == "connecting" || status == "syncing" || progress != nil }
     var isNative: Bool { provider == "apple-calendar" }
 
+    /// A cloud drive, listed as a cloud connector with its logo, never as a folder.
+    var isCloud: Bool { kind == "cloud" }
+
     var symbol: String {
+        if let logo = ConnectorLogo.symbolName(for: provider) { return logo }
         switch provider {
         case "outlook": return "envelope"
         case "notion": return "doc.text"
@@ -392,6 +405,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let inspector = SourceInspectorPanel()
     private var directories: [WorkDirectory] = []
     private var connections: [ConnectedApp] = []
+    /// The cloud drives the panel offers to connect, from the workspace's state.
+    private var cloudOffers: [CloudDriveOffer] = []
     private lazy var connectApps: ConnectAppsWindowController = {
         let controller = ConnectAppsWindowController()
         controller.onChange = { [weak self] in self?.refreshWorkspace() }
@@ -470,6 +485,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var connectedListCollapsed: Bool {
         get { UserDefaults.standard.bool(forKey: "ConnectedAppsCollapsed") }
         set { UserDefaults.standard.set(newValue, forKey: "ConnectedAppsCollapsed") }
+    }
+
+    private var cloudListCollapsed: Bool {
+        get { UserDefaults.standard.bool(forKey: "CloudDrivesCollapsed") }
+        set { UserDefaults.standard.set(newValue, forKey: "CloudDrivesCollapsed") }
     }
 
     private func toggleColor(for directoryID: String) -> DirectoryToggleColor {
@@ -784,7 +804,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let usage = directory.progress != nil ? "Lasso is reading this folder."
                 : directory.needsAttention ? "Click to try this folder again."
                 : directory.active ? "On: suggestions include this folder." : "Off: this folder is paused."
-            item.toolTip = [directory.rootPath, directory.error, directory.note, usage].compactMap { $0 }
+            item.toolTip = [directory.rootPath, directory.error, directory.note,
+                            CloudOnlyFiles.note(directory.onlyInCloud, in: "the cloud"), usage].compactMap { $0 }
                 .joined(separator: "\n")
             item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
             let id = directory.id
@@ -798,6 +819,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             row.onFix = { [weak self] in self?.fixDirectory(id) }
             row.onSelect = { [weak self] extend in self?.toggleRemovalSelection(id, extendingRange: extend) }
             row.onReveal = { [weak self] in self?.revealDirectory(id) }
+            let cloudOnly = directory.onlyInCloud
+            row.extraActions = cloudOnly > 0 ? { [weak self] in
+                [RowAction(title: CloudOnlyFiles.action(cloudOnly), enabled: self?.isServerReady == true,
+                           help: CloudOnlyFiles.actionHelp) { self?.downloadCloudFiles(projectId: id) }]
+            } : nil
             row.onRemove = { [weak self] in
                 let remove = NSMenuItem()
                 remove.representedObject = id
@@ -827,18 +853,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return group
     }
 
-    /// Connected apps, in their own section below the folders, each with the
-    /// same switch and colour as a folder.
+    /// Cloud drives, then other connected apps, each in its own section below
+    /// the folders, with the same switch and colour as a folder.
     private func addConnectedApps() {
-        guard !connections.isEmpty else { return }
+        // The drives not connected yet are offered in the section, so it shows before any is connected.
+        addConnectionSection("Cloud Drives", connections.filter(\.isCloud), collapsed: cloudListCollapsed,
+                             toggle: #selector(toggleCloudList), offers: isServerReady ? CloudDriveOffer.unconnected(cloudOffers) : [])
+        addConnectionSection("Connected Apps", connections.filter { !$0.isCloud }, collapsed: connectedListCollapsed,
+                             toggle: #selector(toggleConnectedList))
+    }
+
+    /// A Connect row for each cloud drive not connected yet, with its logo.
+    private func addCloudOffers(_ offers: [CloudDriveOffer]) {
+        for offer in offers {
+            let item = command(offer.title, action: #selector(connectCloudDrive(_:)), enabled: !areControlsLocked)
+            item.representedObject = offer.provider
+            item.image = ConnectorLogo.image(for: offer.provider)
+            item.toolTip = offer.help
+            statusMenu.addItem(item)
+        }
+    }
+
+    private func addConnectionSection(_ title: String, _ list: [ConnectedApp], collapsed: Bool, toggle: Selector,
+                                      offers: [CloudDriveOffer] = []) {
+        guard !list.isEmpty || !offers.isEmpty else { return }
         statusMenu.addItem(.separator())
         // An app being read stays in view even in a collapsed list.
-        let expanded = !connectedListCollapsed || connections.contains { $0.progress != nil }
-        let heading = command("Connected Apps", action: #selector(toggleConnectedList))
-        heading.view = NativeMenuDisclosureRow(item: heading, expanded: expanded, count: connections.count)
+        let expanded = !collapsed || list.contains { $0.progress != nil }
+        let heading = command(title, action: toggle)
+        heading.view = NativeMenuDisclosureRow(item: heading, expanded: expanded, count: list.count)
         statusMenu.addItem(heading)
         guard expanded else { return }
-        for connection in connections {
+        defer { addCloudOffers(offers) }
+        for connection in list {
             let id = connection.id
             let signingIn = connection.status == "connecting"
             let item = command(connection.name + (signingIn ? " (signing in)" : ""), action: #selector(toggleConnection(_:)),
@@ -852,8 +899,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let usage = signingIn ? "Finish signing in, in your browser."
                 : connection.progress != nil ? "Lasso is bringing in this app’s items."
                 : connection.active ? "On: suggestions include this app." : "Off: this app is paused."
-            item.toolTip = ["\(connection.itemCount) items.", synced, connection.error, usage].compactMap { $0 }.joined(separator: "\n")
-            item.image = NSImage(systemSymbolName: connection.symbol, accessibilityDescription: nil)
+            item.toolTip = ["\(connection.itemCount) items.", synced, connection.error,
+                            CloudOnlyFiles.note(connection.onlyInCloud, in: "iCloud"), usage].compactMap { $0 }.joined(separator: "\n")
+            item.image = ConnectorLogo.menuImage(symbol: connection.symbol)
             // Inserted text is highlighted by the project it came from.
             let colorKey = connection.projectId ?? id
             let row = NativeMenuToggleRow(item: item, color: toggleColor(for: colorKey)) { [weak self] color in
@@ -865,7 +913,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             row.contextActions = { [weak self] in
                 let current = self?.connections.first { $0.id == id }
                 let ready = self?.isServerReady == true && current?.isBusy == false
-                return [
+                let cloudOnly = current?.onlyInCloud ?? 0
+                let download = cloudOnly > 0 ? RowAction(title: CloudOnlyFiles.action(cloudOnly), enabled: ready,
+                                                         help: CloudOnlyFiles.actionHelp) {
+                    if let projectId = current?.projectId { self?.downloadCloudFiles(projectId: projectId) }
+                } : nil
+                return (download.map { [$0, nil] } ?? []) + [
                     RowAction(title: "Sync Now", enabled: ready, help: "Read the app again now.") { self?.syncConnection(id) },
                     RowAction(title: "Open Connect Window…") { self?.showConnectApps() },
                     nil,
@@ -1092,7 +1145,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         connections = WorkspaceAPI.listed(
             (state["connections"] as? [[String: Any]] ?? []).compactMap(ConnectedApp.init), isOn: \.active,
             id: \.id, holding: open ? connections.map(\.id) : nil)
+        cloudOffers = CloudDriveOffer.listed(state)
         removalSelection = removalSelection.pruned(to: directories.map(\.id))
+        ConnectedSourceLinks.refresh(serverURL: server.url, signature: connections
+            .map { "\($0.id):\($0.lastSyncedAt?.timeIntervalSince1970 ?? 0)" }.joined(separator: ","))
         // The Calendar app's events are read here and sent to the server.
         let calendars = connections.filter { $0.isNative && $0.active && $0.projectId != nil }
         if !calendars.isEmpty || connectAppsLoaded {
@@ -1467,13 +1523,80 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// does not create it for someone who never connected one.
     private var connectAppsLoaded = false
 
-    @objc private func showConnectApps() {
+    @objc private func showConnectApps() { openConnectApps(starting: nil) }
+
+    /// Opens the Connect window, at one provider's flow when `provider` is given.
+    private func openConnectApps(starting provider: String?) {
         guard isServerReady, let url = server.url else { return }
         connectAppsLoaded = true
         statusPopover.popover.performClose(nil)
         // Like Settings, the window is a regular app window while it is open.
         NSApp.setActivationPolicy(.regular)
-        DispatchQueue.main.async { [weak self] in self?.connectApps.show(serverURL: url) }
+        DispatchQueue.main.async { [weak self] in self?.connectApps.show(serverURL: url, starting: provider) }
+    }
+
+    /// A Cloud Drives Connect row: iCloud Drive connects at once, a drive whose
+    /// sign-in is ready opens it in the browser, and one without its app
+    /// registration opens the Connect window at that provider's setup.
+    @objc private func connectCloudDrive(_ sender: NSMenuItem) {
+        guard let provider = sender.representedObject as? String,
+              let offer = cloudOffers.first(where: { $0.provider == provider }) else { return }
+        switch offer.step {
+        case .setUp:
+            openConnectApps(starting: provider)
+        case .addFolder:
+            mutateWorkspace(path: "api/connections", body: ["provider": provider], message: "Connecting \(offer.name)\u{2026}",
+                            failureTitle: "\(offer.name) Couldn\u{2019}t Be Connected", answersWithWorkspace: false)
+        case .signIn:
+            startCloudSignIn(offer)
+        }
+    }
+
+    /// Starts the sign-in the Connect window would, and opens its page in the browser.
+    private func startCloudSignIn(_ offer: CloudDriveOffer) {
+        guard isServerReady, let base = server.url else { return }
+        var request = URLRequest(url: base.appendingPathComponent("api/connections"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "content-type")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["provider": offer.provider])
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                let answer = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+                if let text = answer?["authorizeUrl"] as? String, let url = URL(string: text),
+                   ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
+                    self.statusPopover.popover.performClose(nil)
+                    NSWorkspace.shared.open(url)
+                } else if status == 409 {
+                    // The registration went missing meanwhile: set it up in the window.
+                    self.openConnectApps(starting: offer.provider)
+                } else {
+                    self.showError(WorkspaceAPI.errorMessage(data: data, response: response, error: error),
+                                   title: "\(offer.name) Sign-In Couldn\u{2019}t Start")
+                }
+                self.refreshWorkspace()
+            }
+        }.resume()
+    }
+
+    /// Has macOS download a folder's files kept only in the cloud; the server reads them once they arrive.
+    private func downloadCloudFiles(projectId: String) {
+        guard isServerReady, let base = server.url else { return }
+        var request = URLRequest(url: base.appendingPathComponent("api/workspace/directories/\(projectId)/download"))
+        request.httpMethod = "POST"
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+                if !(200..<300).contains(status) {
+                    self.showError(WorkspaceAPI.errorMessage(data: data, response: response, error: error),
+                                   title: "The Files Couldn\u{2019}t Be Downloaded")
+                }
+                self.refreshWorkspace()
+            }
+        }.resume()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.refreshWorkspace() }
     }
 
     /// Back to the menu bar alone once no Lasso window is open.
@@ -1490,6 +1613,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func toggleConnectedList() {
         connectedListCollapsed.toggle()
+        rebuildMenu()
+    }
+
+    @objc private func toggleCloudList() {
+        cloudListCollapsed.toggle()
         rebuildMenu()
     }
 
