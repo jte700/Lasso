@@ -1,7 +1,7 @@
 The mylasso.ca website
 
 Vercel (project lasso-website, Root Directory "website") deploys this folder whenever main is pushed.
-The site that was live before the 21 November 2026 redesign is kept in ../website-previous.
+The site that was live before the 21 November 2026 redesign is in git history (removed from the tree on 26 November 2026).
 
 To view it on a Mac: double-click "Open Lasso site.command" (if macOS blocks it, right-click it and choose Open). It opens the site at http://localhost:8765. Close the Terminal window to stop it.
 

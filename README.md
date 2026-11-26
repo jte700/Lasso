@@ -1,35 +1,58 @@
 <p align="center">
-  <img src="docs/images/lasso-icon.png" width="84" height="84" alt="Lasso app icon">
+  <img src="docs/images/lasso-icon.png" width="84" height="84" alt="Lasso app icon: the white Lasso mascot on black">
 </p>
 
 <h1 align="center">Lasso</h1>
 
-<p align="center"><b>The right figure, from the right file.</b><br>Autocomplete exact figures, clauses and passages from your own files in any Mac app, with versioned provenance, an AI writer, review workflows, and a local MCP server.</p>
+<p align="center"><b>The right figure, from the right file.</b><br>Lasso suggests exact figures, clauses and passages from your own files while you write in any Mac app. Press <code>Tab</code> and it goes in, linked to the file and version it came from.</p>
 
 <p align="center">
   <a href="https://mylasso.ca">Website</a> ·
-  <a href="#what-lasso-does">Features</a> ·
+  <a href="#whats-new">What's new</a> ·
+  <a href="#features">Features</a> ·
   <a href="#install-and-run">Install</a> ·
   <a href="#keyboard-shortcuts">Shortcuts</a> ·
-  <a href="#lasso-mcp-for-ai-agents">MCP for AI agents</a> ·
+  <a href="#lasso-mcp-for-ai-agents">MCP</a> ·
   <a href="#benchmarks">Benchmarks</a> ·
   <a href="docs/user-guide.md">User guide</a>
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/autocomplete-dark.gif">
+    <img src="docs/images/autocomplete-light.gif" width="560" alt="Typing 'Q3 actual operating revenue was 4' in a memo brings up a Lasso card showing 4.82 from forecast_2026.xlsx with its row highlighted; Tab inserts 4.82 as a linked value">
+  </picture>
+  <br><sub>Start typing a figure and Lasso finds the cell it came from. <code>Tab</code> inserts it with a link back to that version of the file.</sub>
 </p>
 
 <p align="center">
   <img src="docs/benchmarks/summary.svg" width="760" alt="Measured results: 73% fewer agent tokens across 92 live MCP tasks, 55% lower model cost with 75 of 92 right vs 62 of 92, 7.0 ms median per keystroke with 27 of 28 top-1 and 0 tokens, and 4 KB per spreadsheet edit down from 1.5 MB">
 </p>
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-excel-dark.png">
-    <img src="docs/images/card-excel-light.png" width="760" alt="Lasso suggestion card offering 4.82 for Operating revenue Q3 actual from forecast_2026.xlsx with cell P&L D12 highlighted in its sheet">
-  </picture>
-  <br><sub>Typing in any app surfaces the exact cell from <code>forecast_2026.xlsx</code> in its sheet before <code>Tab</code> inserts it, with its source version attached.</sub>
-</p>
+Lasso watches the folders you choose and reads what is in them: spreadsheets, PDFs, Word documents, decks, CAD models, code and recorded calls. As you write in Mail, Word, Notes, Slack, a browser or anywhere else, it offers the exact text or number from those files. Suggestions are never invented by a language model. They come straight from your files, and everything stays on your Mac unless you choose to share it.
+
+## What's new
+
+| Update | What it means for you |
+| --- | --- |
+| **`\` commands** | Start a sentence with `\` and press `Tab`. Your chosen AI writer answers in its place, using only what it finds in your Lasso folders, and every fact it uses is linked to its source. The same works in reviews: a comment that starts with `\` asks the AI to make the change. [More](#write-with-a-backslash) |
+| **Cloud drives** | Google Drive (with shared drives), OneDrive (with SharePoint libraries, if you opt in), Dropbox and iCloud Drive can now be sources. Lasso only reads them. [More](#cloud-drives-usb-drives-and-connected-apps) |
+| **A redesigned Loop** | The library window has a new dark look in the Figtree typeface: a file tree sidebar, a floating chip search, an audit log of recent changes, a map of how files connect, and a short tour the first time you open it. [More](#the-loop) |
+| **Review Changes** | Pull-request style reviews for ordinary files. Comment on a line, a cell or a passage, apply suggested edits, ask named reviewers, then approve. [More](#review-changes) |
+| **AI-written text, marked** | Text an AI wrote is bracketed in that AI's colour in other apps. Hover to see which AI wrote it and from what prompt. Word documents carry the record with them. [More](#provenance-you-can-see) |
+| **Faster folder switching** | `⌥Tab` narrows suggestions to one folder. Hold it and the pill grows into a list of your folders to pick from. [More](#choose-where-suggestions-come-from) |
+| **A new face** | The Lasso mascot is now the app's small logo, in the menu bar, the folder switcher, the dictation pill and The Loop. |
+
+## Features
+
+### Exact autocomplete, from your own files
+
+Type a name, a figure, the start of a clause or a quoted phrase, and Lasso shows the matching source in a card by the caret. The rest of the suggestion appears as faint ghost text after the caret. Press `Tab` to insert it, or `↑` `↓` to pick another source. The card previews the cell in its sheet, the sentence on its page, the slide, the CAD part or the moment in a recording.
+
+A suggestion only appears when your words match words in the file itself, and an exact match (a cell's row name, a value, a file name) always ranks first. The rules are written up in the [ranking algorithm](docs/lasso-ranking-algorithm.pdf).
 
 <details>
-<summary><b>More examples</b>: PDF contracts, STEP 3D models, IFC floor plans, research reports, and how Lasso works</summary>
+<summary><b>See more cards</b>: PDF contracts, STEP 3D models, IFC floor plans and research reports</summary>
 <br>
 <p align="center">
   <picture>
@@ -43,64 +66,172 @@
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-cad-dark.png">
     <img src="docs/images/card-cad-light.png" width="760" alt="Lasso suggestion card offering Bracket Ø8 hole diameter, 8 mm, from motor_mount_revC.step with an interactive 3D wireframe highlighting the holes">
   </picture>
-  <br><sub>From a STEP assembly: exact part dimensions with an interactive 3D wireframe of the highlighted feature.</sub>
+  <br><sub>From a STEP assembly: exact part dimensions, with an interactive 3D wireframe of the feature.</sub>
 </p>
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-ifc-dark.png">
     <img src="docs/images/card-ifc-light.png" width="760" alt="Lasso suggestion card offering net floor area 21.410325 m² from plan_L2.ifc with the room highlighted on the floor plan">
   </picture>
-  <br><sub>From an IFC building model: room areas and quantities with the room highlighted on its floor plan.</sub>
+  <br><sub>From an IFC building model: room areas and quantities, with the room highlighted on its floor plan.</sub>
 </p>
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/card-report-dark.png">
     <img src="docs/images/card-report-light.png" width="760" alt="Lasso suggestion card completing a sentence from smith2023.pdf with the source passage highlighted on Page 1">
   </picture>
-  <br><sub>From a PDF report: exact findings and confidence intervals, matched straight from the page.</sub>
-</p>
-<p align="center">
-  <img src="docs/images/architecture.svg" width="760" alt="How Lasso works: the Mac app reads text before the caret, draws the suggestion card, ghost text, pickers and The Loop, and talks to a local Node.js index server backed by SQLite, watched folders, USB drives, connected apps and an MCP server">
+  <br><sub>From a PDF report: findings and confidence intervals, matched straight from the page.</sub>
 </p>
 </details>
 
-## What Lasso does
+### Write with a backslash
 
-Lasso indexes the folders you choose on your Mac and offers exact values, clauses and passages while you write in any app. Press `Tab` to insert one, with a link back to the file and version it came from.
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/writer-dark.gif">
+    <img src="docs/images/writer-light.gif" width="560" alt="In a new email, the user types '\Write an email about the income tax expense', a 'Write with ChatGPT' pill appears, Lasso looks up income tax expense, and the email writes itself with 5,200, 3,200 and 2,000 linked to their source">
+  </picture>
+  <br><sub>A <code>\</code> prompt becomes a finished email, with each figure linked to the statement it came from.</sub>
+</p>
 
-- **Exact autocomplete & inline ghost text.** Suggestions are verbatim text and measured values from your files, never generated by a language model. Matching completions preview inline as ghost text after the caret and in a Liquid Glass card with live sheet, page, slide, CAD or video previews.
-- **Cell & passage pickers.** Press `fn Tab` on a spreadsheet or CSV suggestion to open its sheet, drag over non-contiguous cells (`⌘Z` undoes the latest highlight), and press `Tab` to paste them as a formatted table picture with its citation. Press `Tab` on a document, slide or video passage to highlight the exact words before inserting.
-- **Provenance pills.** Inserted values render as pills in their folder's colour. Click any pill to inspect its exact versioned source or swap to another source the card offered; when an underlying file changes, Lasso flags what relied on it without rewriting your document.
-- **AI writer (opt-in).** Choose an AI writer with `⌥Tab ↓` (ChatGPT via your own account). Start any sentence with `\` and press `Tab`: the writer queries your local Lasso index, writes in place with linked source pills, stops on `Esc`, and reverts cleanly on `⌘Z`.
-- **The Loop & Review Changes (`⇧⌘L`).** Lasso's library window in a dark Figtree UI: a live **Recent Changes** audit log (typed cell edits first, recalculated formula cells folded, inline diffs), **Review Changes** (PR-style file tabs for edits since last approval, line/cell/passage comments, Apply edits including `.xls`, `\...` AI edits, Add Reviewers, Approve and Undo), morphing chip search (`⌘F`), active share links, and items needing review.
-- **Private expiring share links (`⇧⌘↩`).** Share the exact cited part, the whole file, or a redacted/marked-up copy through a 48-hour link on `mylasso.ca`, revocable at any time from The Loop. Only content you explicitly share leaves your Mac.
-- **Dictation, USB drives, source scopes & connected apps.** A voice-wave glass pill follows macOS Dictation and morphs into the card as you speak (say "tab" to accept). Plug in any USB drive and Lasso asks whether to index the drive or chosen folders. Press `⌥Tab` to narrow suggestions to one folder or opt-in connected app (Outlook, Google Calendar, Apple Calendar, Notion, iCal feeds).
-- **Local MCP server for AI agents.** Gives Claude Code, Claude Desktop, Cursor and ChatGPT one local tool over your scoped folders, saving 73% of tokens across 92 live tasks.
+Pick an AI writer with `⌥Tab` then `↓` (ChatGPT, signed in with your own account). After that, any sentence you start with `\` is a prompt:
+
+1. Type your request, such as `\Write an email about the income tax expense`, and press `Tab`.
+2. Lasso erases the prompt and the writer answers in its place. It searches your Lasso folders for what it needs and cites what it uses, and each citation becomes a linked source pill.
+3. Press `Esc` to stop it at any point, or `⌘Z` to take the whole answer back.
+
+The writer only sees your prompt and what it looks up through Lasso. Ordinary suggestions while you type never use a language model.
+
+### Choose where suggestions come from
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/scope-dark.webp">
+    <img src="website/assets/media/scope-light.webp" width="440" alt="The ⌥Tab switcher over a letter, with 'Suggest from' set to the Halden Ltd folder among All, Accounting and Board, and 'Write with' offering None or ChatGPT">
+  </picture>
+</p>
+
+Press `⌥Tab` to narrow suggestions to one folder or connected app. They stay narrowed until you choose All again. Hold `⌥Tab` and the pill grows into a list of every switched-on folder. Pick one with `↑` `↓` and `Return`, or click it. With more than ten folders, the list shows the five you use most.
+
+### Cloud drives, USB drives and connected apps
+
+<p align="center">
+  <img src="docs/images/cloud-drives.svg" width="760" alt="Google Drive, OneDrive and Dropbox are mirrored read-only onto your Mac and iCloud Drive is read in place. All four feed the Lasso index on your Mac. Online-only files are counted but not downloaded until you ask, and a cited file opens on its own web page.">
+</p>
+
+- **Cloud drives.** Connect Google Drive, OneDrive, Dropbox or iCloud Drive from the **Cloud Drives** section of the menu bar panel. Lasso suggests from their files like any other folder and opens a cited file on its own web page. It never writes to the drive, and files kept online only are not downloaded unless you ask.
+- **USB drives.** Plug in a drive and Lasso asks whether to index all of it or only the folders you pick. When the drive is unplugged, you can keep its saved index to search offline.
+- **Connected apps.** Outlook mail and calendar, Google Calendar, the Calendar app on your Mac, Notion and any iCal feed can be switched on in the Connect window. After you insert an event, the next word picks its detail: "on" offers the date, "at" the time or place, "with" the people.
+
+### The Loop
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/loop-dark.gif">
+    <img src="docs/images/loop-light.gif" width="560" alt="The Loop's Recent Changes log: a row for Q3 operating revenue in forecast_2026.xlsx opens to show the value going from 4.82 to 4.86 and the gross profit and gross margin cells it recalculated">
+  </picture>
+  <br><sub>Recent Changes opens each edit in place: the cells that were typed into first, then the formulas they recalculated.</sub>
+</p>
+
+Press `⇧⌘L` from any app to open The Loop, Lasso's library window. It shows every source in your folders and what has happened to them:
+
+- **All Sources**, as a table or as cards, narrowed with a floating chip search (`F` or `⌘F`).
+- **Recent Changes**, an audit log of who changed what and when. Each row opens to show the lines, cells or passages that changed.
+- **Network**, a map of how your files connect, with the reason for each connection.
+- **Links** you have shared, and items that **Need Review** because a source they rely on has changed.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/loop-sources-dark.webp">
+    <img src="website/assets/media/loop-sources-light.webp" width="380" alt="The Loop's All Sources page listing a spreadsheet, a Word memo, a deck, a recording, a CSV export and a PDF statement, with a chip search narrowing to the Accounting folder">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/loop-share-dark.webp">
+    <img src="website/assets/media/loop-share-light.webp" width="380" alt="Sharing lease_unit4_signed.pdf from The Loop as a redacted copy with three marks, as a private link for 48 hours, to one email address">
+  </picture>
+</p>
+
+### Review Changes
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/loop-review-dark.webp">
+    <img src="website/assets/media/loop-review-light.webp" width="560" alt="Review Changes for the Accounting folder: a tab per edited file, a comment on the Website development cell asking ChatGPT to set the current period to 50, ChatGPT's applied edit, and an Approve button">
+  </picture>
+</p>
+
+Review Changes brings pull-request style review to everyday files. It lists every file edited since the folder was last approved, with a tab per file:
+
+- Comment on a line, a cell or a passage, reply, and resolve.
+- Suggest a change and apply it as your own edit, including in `.xlsx`, `.csv` and older `.xls` workbooks.
+- Start a comment with `\` and ChatGPT makes the change. The edit is recorded as the AI's, with who asked and the prompt.
+- Ask named people to review, approve the folder, and undo an approval if you need to.
+
+### Pick exactly what to insert
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/picker-dark.webp">
+    <img src="website/assets/media/picker-light.webp" width="560" alt="The sheet picker on forecast_2026.xlsx with two separate highlights, the operating revenue row and the gross margin row, pasted into an email as a small table with its citation">
+  </picture>
+</p>
+
+- **Sheet picker.** Press `fn Tab` on a spreadsheet or CSV suggestion to open its sheet. Drag to highlight cells (highlights don't have to touch), `⌘Z` removes the latest one, and `Tab` pastes a picture of those cells with their citation.
+- **Passage picker.** Press `Tab` on a PDF, Word, deck, text or video passage to open the document with the matching words already highlighted. Adjust the highlight, then insert the text or a link.
+
+### Provenance you can see
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/provenance-dark.webp">
+    <img src="website/assets/media/provenance-light.webp" width="560" alt="A board memo with 4.82, 4.95 and 38.4% drawn as linked pills; clicking 38.4% shows forecast_2026.xlsx, Inspect Source and Change Source, and a note that it changed today from 38.4% to 38.9%">
+  </picture>
+</p>
+
+- **Source pills.** Inserted values are drawn as pills in their folder's colour. Click one to inspect the exact version it came from, or to swap in another source. When the file changes, Lasso shows the new value and lets you review or keep the old one. It never rewrites your document by itself.
+- **AI-written text.** Text an AI wrote is marked with brackets in that AI's colour, and hovering shows a card with which AI wrote it and from what prompt. This comes from what the tools recorded when they wrote it (Claude Code, Lasso's own writer, and answers pasted from AI apps), never from guessing at the words. Word documents carry the record, signed, to anyone else who has Lasso.
+- **Private share links.** Press `⇧⌘↩` to share the cited part, the whole file, or a redacted or marked-up copy through a link that expires after 48 hours. You can revoke it at any time from The Loop. Only what you share leaves your Mac.
+
+### Dictation and AI agents
+
+- **Dictation.** When you dictate with macOS Dictation, a glass pill with voice waves follows your words and grows into the suggestion card. Say "tab" to accept.
+- **MCP for AI agents.** Claude Code, Claude Desktop, Cursor, ChatGPT and other MCP hosts can ask your Lasso folders instead of reading raw files. In live tests that used 73% fewer tokens. [Set it up](#lasso-mcp-for-ai-agents).
+
+## How it works
+
+<p align="center">
+  <img src="docs/images/architecture.svg" width="760" alt="How Lasso works: the Mac app reads text before the caret, draws the suggestion card, ghost text, pickers and The Loop, and talks to a local Node.js index server backed by SQLite, watched folders, USB and cloud drives, connected apps and an MCP server">
+</p>
+
+The Mac app reads the text before your caret through Accessibility and asks a local index server for matches. The server reads your files, keeps every version of them in SQLite, and ranks suggestions without calling any model. Nothing leaves your Mac unless you share a link, connect a cloud service, or send a prompt to your AI writer.
 
 ## Supported sources
 
-| Kind | Formats & capabilities |
+| Kind | Formats and what Lasso does with them |
 | --- | --- |
-| **Spreadsheets & tables** | `.xlsx`, `.xlsm`, `.xls`, `.csv`, `.tsv`, `.ods` · row/column value lists, row-mate follow-ups, formula recalculation tracking, cell picker (`fn Tab`), whole-table MCP queries |
-| **Documents & decks** | `.pdf`, `.docx`, `.pptx`, `.md`, `.txt`, `.rtf` · sentence completion, live page & slide previews, passage picker, word-level change highlights |
-| **3D CAD & drawings** | `.step` / `.stp`, `.ifc`, `.dxf`, `.xml` (LandXML) · part dimensions, assembly placements, interactive 3D wireframe and floor-plan previews |
-| **Code & structured data** | Source code, `.json`, `.yaml`, `.xml`, `.ipynb` · filename and symbol lookup, cite by `line N` or `lines N-M` with original indentation |
-| **Video recordings** | `.mov`, `.mp4`, `.m4v` · on-device speech transcription (macOS 26), quoted phrase search, in-card playback cued to the exact moment |
-| **Connected apps & drives** | Outlook, Google Calendar, Apple Calendar, Notion, iCal feeds (opt-in) · external USB-A / USB-C drives indexed on request |
+| **Spreadsheets and tables** | `.xlsx`, `.xlsm`, `.xls`, `.csv`, `.tsv`, `.ods` · values by row and column, follow-up values from the same row, recalculated formulas tracked, sheet picker |
+| **Documents and decks** | `.pdf`, `.docx`, `.pptx`, `.md`, `.txt`, `.rtf` · sentence completion, page and slide previews, passage picker, changed words highlighted |
+| **3D CAD and drawings** | `.step` / `.stp`, `.ifc`, `.dxf`, LandXML · part dimensions, assembly placements, 3D wireframe and floor-plan previews, alignment and pipe network tables |
+| **Code and structured data** | Source code, `.json`, `.yaml`, `.xml`, `.ipynb` · file and symbol lookup, cite `line N` or `lines N-M` with the original indentation |
+| **Recordings** | `.mov`, `.mp4`, `.m4v` · on-device transcription (macOS 26), quoted phrase search, playback from the exact moment |
+| **Cloud drives** | Google Drive and shared drives, OneDrive and SharePoint (opt-in), Dropbox, iCloud Drive · read-only |
+| **Drives and apps** | USB-A and USB-C drives on request · Outlook, Google Calendar, Calendar on your Mac, Notion, iCal feeds (opt-in) |
 
 ## System requirements
 
 | | Requirement |
 | --- | --- |
-| **Operating system** | macOS 13.5 or later (Liquid Glass UI and on-device video transcription on macOS 26). Windows 10 (1809) or later is in preview. |
+| **Operating system** | macOS 13.5 or later. Liquid Glass and on-device video transcription need macOS 26. Windows 10 (1809) or later is in preview. |
 | **To build from source** | Node.js 24 or later, and the Xcode Command Line Tools |
 | **Permissions** | Accessibility, granted once in System Settings, so Lasso can read and insert text |
 | **For the MCP server** | Any MCP host: Claude Code, Claude Desktop, Cursor, ChatGPT and others |
-| **Network** | Indexing, suggestions, The Loop and local MCP work offline. Hosted shares (`mylasso.ca`), connected apps and the opt-in AI writer need internet access. |
+| **Network** | Indexing, suggestions, The Loop and the local MCP server work offline. Cloud drives, connected apps, share links and the AI writer need an internet connection. |
 
-The built Mac app bundles its own Node.js runtime, so a Mac running `Lasso.app` needs nothing else installed.
+The built app carries its own Node.js, so a Mac running `Lasso.app` needs nothing else installed.
 
 ## Install and run
+
+Build the app from source:
 
 ```bash
 git clone https://github.com/jte700/Lasso.git
@@ -110,44 +241,45 @@ npm run desktop
 open dist/Lasso.app
 ```
 
-Lasso appears in the menu bar and launches at login. After quitting, press `⌘L` to start it again.
+Lasso appears in the menu bar and starts at login. If you quit it, press `⌘L` to start it again.
 
 <details>
 <summary>Run only the local index server, without the Mac app</summary>
 
 ```bash
 npm ci
-npm start                       # opens local server on http://127.0.0.1:4317
+npm start                       # local server on http://127.0.0.1:4317
 ```
 </details>
 
 ## How to use it
 
-1. Click the Lasso icon in the menu bar and choose **Add Work Directories…** to pick the folders Lasso should watch (or connect an app / plug in a USB drive).
-2. Turn on **Suggest While Typing**, and grant Accessibility access when macOS prompts.
-3. Write in any app. As you type a name, figure, clause or quoted phrase from your files, ghost text and the suggestion card appear by the caret.
-4. Press `Tab` to insert, `↑` `↓` to pick another source, `fn Tab` on a spreadsheet to highlight cells, or `⌥Tab` to narrow to one folder or enable the AI writer.
-5. Press `⇧⌘L` from any app to open **The Loop**: browse every source, inspect recent changes, review edits, and manage shared links.
+1. Click the Lasso icon in the menu bar and choose **Add Work Directories…** to pick the folders Lasso should read. You can also connect a cloud drive or an app, or plug in a USB drive.
+2. Turn on **Suggest While Typing**, and allow Accessibility access when macOS asks.
+3. Write in any app. When you type a name, a figure, a clause or a quoted phrase from your files, the card and ghost text appear by the caret.
+4. Press `Tab` to insert, `↑` `↓` to choose another source, `fn Tab` on a spreadsheet to pick cells, or `⌥Tab` to choose a folder or an AI writer.
+5. Press `⇧⌘L` from any app to open **The Loop** and see your sources, recent changes, reviews and shared links.
 
-The [user guide](docs/user-guide.md) covers sharing, redaction, connected apps, USB drives, dictation, and CAD sources in detail.
+The [user guide](docs/user-guide.md) covers sharing, redaction, cloud drives, connected apps, USB drives, dictation and CAD sources in more detail.
 
 ## Keyboard shortcuts
 
-**While writing or with a suggestion card showing**
+**While writing, or with a suggestion card showing**
 
 | Keys | Action |
 | --- | --- |
-| `Tab` | Insert the suggestion (on a passage, opens its document to highlight exact words) |
+| `Tab` | Insert the suggestion (on a passage, open its document to highlight the exact words) |
 | `↑` `↓` | Choose another suggestion or source |
-| `fn →` / `fn ←` | Dive into the selected source or sheet values / step back |
+| `fn →` / `fn ←` | Look inside the selected source or sheet values / step back |
 | `⇧fn →` / `⇧fn ←` | Choose which words of a highlighted line to insert |
-| `fn Tab` | Open a spreadsheet or CSV suggestion in the cell picker |
-| `⌥Tab` | Switch source scope (All or one folder/app); `↓` chooses the AI writer |
-| `\ …` then `Tab` | Send the sentence to the selected AI writer as a prompt |
-| `⌘↩` | Insert with local provenance tracking, never as a share link |
-| `⇧⌘↩` | Share the cited reference as an expiring private link |
+| `fn Tab` | Open a spreadsheet or CSV suggestion in the sheet picker |
+| `⌥Tab` | Switch between All and one folder or app; `↓` chooses the AI writer |
+| Hold `⌥Tab` | List your switched-on folders to pick from |
+| `\ …` then `Tab` | Send the sentence to your AI writer as a prompt |
+| `⌘↩` | Insert with a local link to the source, never as a share link |
+| `⇧⌘↩` | Share the cited source as an expiring private link |
 | `⌘Z` | Undo what Lasso or the AI writer just inserted |
-| `Esc` | Dismiss for the current word (or stop the AI writer) |
+| `Esc` | Dismiss for the current sentence, or stop the AI writer |
 
 **Anywhere**
 
@@ -157,7 +289,7 @@ The [user guide](docs/user-guide.md) covers sharing, redaction, connected apps, 
 | `⌘L` | Start Lasso again after quitting |
 | `⌘,` | Settings |
 
-In The Loop, `⌘1` to `⌘5` switch views, `⌘F` opens morphing chip search, and `↑` `↓` / `→` `←` step through and expand Recent Changes. The complete list is in **Settings → Shortcuts**.
+In The Loop, `⌘1` to `⌘5` switch pages, `⌘F` opens search, and `↑` `↓` / `→` `←` move through Recent Changes and open or close a change. The full list is in **Settings → Shortcuts**.
 
 ## Lasso in the terminal
 

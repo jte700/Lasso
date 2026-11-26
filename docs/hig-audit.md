@@ -9,7 +9,7 @@ Findings are ranked within each section by how strongly they make Lasso feel non
 - **Left for later**: deliberately not changed on this branch, with the reason.
 - **Kept**: reviewed and kept as is, because the current design is a deliberate, defensible exception.
 
-Before and after screenshots live in [`docs/hig-audit/before`](hig-audit/before) and [`docs/hig-audit/after`](hig-audit/after). Web surfaces were rendered in WKWebView (the engine the app uses) in light and dark mode. Native surfaces were rendered offscreen from the real AppKit classes with sample folders. The website was rendered at 375, 768 and 1440 points wide.
+Before and after screenshots were taken for this audit and are kept in the history of commit 3b52ed3, not in the current tree. Web surfaces were rendered in WKWebView (the engine the app uses) in light and dark mode. Native surfaces were rendered offscreen from the real AppKit classes with sample folders. The website was rendered at 375, 768 and 1440 points wide.
 
 ## What Lasso is made of
 

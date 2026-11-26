@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="292" viewBox="0 0 760 292" role="img" aria-labelledby="t d">
+<title id="t">Cloud drives</title>
+<desc id="d">Google Drive with shared drives, OneDrive with SharePoint libraries you follow, and Dropbox are mirrored read-only onto your Mac; iCloud Drive is read in place. All four feed the Lasso index on your Mac. Online-only files are counted but not downloaded until you ask, and a cited file opens on its own web page.</desc>
+<style>
+  .surface { fill: #fffdf7; stroke: #e3dfd2; }
+  .box { fill: #f7f5ed; stroke: #d8d4c6; stroke-width: 1.2; }
+  .box-accent { fill: #fffdf7; stroke: #2a6db0; stroke-width: 1.6; }
+  .title { fill: #1b1f17; font: 600 17px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; letter-spacing: -0.02em; }
+  .subtitle { fill: #5a5e55; font: 13px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .head { fill: #1b1f17; font: 600 13.5px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .line { fill: #5a5e55; font: 12px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .mode { fill: #2a6db0; font: 600 11.5px 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif; }
+  .arrow { stroke: #7b7f76; stroke-width: 1.4; fill: none; }
+  .head-fill { fill: #7b7f76; }
+  .gd { fill: #1fa463; } .od { fill: #0f6cbd; } .db { fill: #0061fe; } .ic { fill: #5ab0f2; }
+  @media (prefers-color-scheme: dark) {
+    .surface { fill: #151513; stroke: #2c2c28; }
+    .box { fill: #1d1d1a; stroke: #3a3a35; }
+    .box-accent { fill: #1a1d21; stroke: #8ec5f4; }
+    .title, .head { fill: #f6f4ec; }
+    .subtitle, .line { fill: #a9a79f; }
+    .mode { fill: #8ec5f4; }
+    .arrow { stroke: #8a8880; }
+    .head-fill { fill: #8a8880; }
+  }
+</style>
+<defs>
+  <marker id="arrowhead" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+    <path class="head-fill" d="M0,0 L10,5 L0,10 z"/>
+  </marker>
+</defs>
+<rect class="surface" x="0.5" y="0.5" width="759" height="291" rx="16"/>
+<text x="24" y="34" class="title">Cloud drives</text>
+<text x="24" y="56" class="subtitle">Connect a drive from the menu bar. Lasso suggests from its files, cites them, and never writes to it.</text>
+
+<rect class="box" x="24" y="76" width="169" height="100" rx="12"/>
+<circle class="gd" cx="42" cy="100" r="6"/>
+<text x="56" y="105" class="head">Google Drive</text>
+<text x="38" y="129" class="line">My Drive and</text>
+<text x="38" y="146" class="line">shared drives</text>
+<text x="38" y="166" class="mode">Mirrored, read-only</text>
+
+<rect class="box" x="205" y="76" width="169" height="100" rx="12"/>
+<circle class="od" cx="223" cy="100" r="6"/>
+<text x="237" y="105" class="head">OneDrive</text>
+<text x="219" y="129" class="line">Plus SharePoint libraries</text>
+<text x="219" y="146" class="line">you follow, if you opt in</text>
+<text x="219" y="166" class="mode">Mirrored, read-only</text>
+
+<rect class="box" x="386" y="76" width="169" height="100" rx="12"/>
+<circle class="db" cx="404" cy="100" r="6"/>
+<text x="418" y="105" class="head">Dropbox</text>
+<text x="400" y="129" class="line">Every folder you</text>
+<text x="400" y="146" class="line">keep in Dropbox</text>
+<text x="400" y="166" class="mode">Mirrored, read-only</text>
+
+<rect class="box" x="567" y="76" width="169" height="100" rx="12"/>
+<circle class="ic" cx="585" cy="100" r="6"/>
+<text x="599" y="105" class="head">iCloud Drive</text>
+<text x="581" y="129" class="line">Already on your Mac,</text>
+<text x="581" y="146" class="line">connects at once</text>
+<text x="581" y="166" class="mode">Read in place</text>
+
+<path class="arrow" d="M108,178 V208" marker-end="url(#arrowhead)"/>
+<path class="arrow" d="M289,178 V208" marker-end="url(#arrowhead)"/>
+<path class="arrow" d="M470,178 V208" marker-end="url(#arrowhead)"/>
+<path class="arrow" d="M651,178 V208" marker-end="url(#arrowhead)"/>
+
+<rect class="box-accent" x="24" y="212" width="712" height="58" rx="12"/>
+<text x="40" y="236" class="head">Lasso index on your Mac</text>
+<text x="40" y="256" class="line">Online-only files are counted, not downloaded, until you ask  ·  A cited file opens on its own web page</text>
+</svg>

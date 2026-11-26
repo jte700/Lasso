@@ -94,6 +94,17 @@ On disconnection, choose **Keep Saved Index** to browse and search cached file c
 
 Detection covers mounted external storage, including USB-A and USB-C drives, while the Mac app is running. Internal disks, network shares, disk images, locked or unmounted volumes, and volumes without a unique persistent identity are excluded. macOS may ask for permission to read removable volumes.
 
+## Cloud drives
+
+The menu bar panel's **Cloud Drives** section offers each drive you have not connected yet:
+
+- **Google Drive**, including shared drives.
+- **OneDrive**, and, if you opt in, the SharePoint libraries you follow. Files in "Shared with me" are not read, since Microsoft Graph stops returning them in November 2026.
+- **Dropbox**.
+- **iCloud Drive**, read in place on this Mac. It connects at once.
+
+Google Drive, OneDrive and Dropbox sign in on the provider's page in your browser and are mirrored, read-only, into a folder Lasso indexes. They need an app registration: set `LASSO_GOOGLE_CLIENT_ID` and `LASSO_GOOGLE_CLIENT_SECRET`, `LASSO_MICROSOFT_CLIENT_ID` or `LASSO_DROPBOX_CLIENT_ID` when running `npm run desktop`, or enter yours in the Connect window, which opens at that step when one is missing. Cloud drives are listed with their logos, apart from your work directories, and a cited file opens on its own web page. Files a drive keeps online only are counted but never downloaded while indexing; they are read only when you ask. Lasso never changes anything in the drive.
+
 ## Connected apps
 
 **Connect 3rd Party Apps…** opens a window, over the website's lasso of source text, where you connect:
