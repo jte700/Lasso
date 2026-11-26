@@ -33,7 +33,7 @@ Lasso watches the folders you choose and reads what is in them: spreadsheets, PD
 
 ## What's new
 
-| | |
+| Update | What it means for you |
 | --- | --- |
 | **`\` commands** | Start a sentence with `\` and press `Tab`. Your chosen AI writer answers in its place, using only what it finds in your Lasso folders, and every fact it uses is linked to its source. The same works in reviews: a comment that starts with `\` asks the AI to make the change. [More](#write-with-a-backslash) |
 | **Cloud drives** | Google Drive (with shared drives), OneDrive (with SharePoint libraries, if you opt in), Dropbox and iCloud Drive can now be sources. Lasso only reads them. [More](#cloud-drives-usb-drives-and-connected-apps) |
