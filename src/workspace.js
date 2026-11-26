@@ -187,7 +187,19 @@ export class WorkspaceService {
     const connected = directories.filter((p) => this.connections?.ownsRoot(p.rootPath));
     return { directories: directories.filter((p) => !connected.includes(p)),
       connections: this.connections?.describe(connected) ?? [], revision: this.revision(),
+      projectUses: this.projectUses(),
       activeProjectIds: directories.filter((p) => p.active && p.available && !p.error && p.serving).map((p) => p.id) };
+  }
+
+  /**
+   * Suggestions accepted from each folder or connected app, by project id,
+   * one per source and session as ranking counts them. The Mac's held ⌥Tab
+   * list shows the most used first.
+   */
+  projectUses() {
+    const rows = this.db.prepare(`SELECT project_id, COUNT(*) AS uses FROM recommendation_usage
+      WHERE kind = 'accept' GROUP BY project_id`).all();
+    return Object.fromEntries(rows.map((row) => [row.project_id, Number(row.uses)]));
   }
 
   /**

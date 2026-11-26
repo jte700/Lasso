@@ -6739,6 +6739,35 @@ do {
     check(scope.update([finance, mail]) && scope.chosen == .all, "the chosen folder switched off goes back to All")
     check(scope.choose(at: 1) && scope.choose(at: 0) && scope.chosenProjectId == nil, "All is chosen like any other")
 
+    let held = { (code: Int64, flags: CGEventFlags, state: KeyRoutingState) in
+        KeyRouter.decide(keyCode: code, flags: flags, synthetic: false, repeated: true, state: state)
+    }
+    check(held(tab, .maskAlternate, open) == .swallow(.scopeHold), "holding ⌥Tab opens the list instead of rolling fast")
+    check(held(tab, [.maskAlternate, .maskShift], open) == .swallow(.scopeHold), "holding ⇧⌥Tab opens the list too")
+    check(held(tab, .maskAlternate, ready) == .swallow(.openScopeSwitcher), "a held ⌥Tab with the switcher closed opens it")
+    let listing = KeyRoutingState(popup: .hidden, scopeSwitcherOpen: true, scopeListOpen: true, scopeSwitchAvailable: true)
+    check(key(down, [], listing) == .swallow(.scopeMove(1)) && key(up, [], listing) == .swallow(.scopeMove(-1)),
+          "in the list ↓ and ↑ move through the folders")
+    check(key(down, .maskAlternate, listing) == .swallow(.scopeMove(1)), "↓ moves with ⌥ still held")
+    check(held(tab, .maskAlternate, listing) == .swallow(.scopeHold), "⌥Tab still held does nothing more in the list")
+    check(key(tab, .maskAlternate, listing) == .swallow(.scopeMove(1)) && key(tab, .maskShift, listing) == .swallow(.scopeMove(-1)),
+          "a fresh Tab moves down the list, ⇧Tab up")
+    check(key(returnKey, [], listing) == .swallow(.scopeChoose) && key(escape, [], listing) == .swallow(.scopeCancel),
+          "Return keeps the folder highlighted and Escape the one chosen before")
+    check(key(0, [], listing) == .pass(.scopeTypedOn), "a letter typed closes the list and goes on to the app")
+
+    let many = (1...12).map { SourceScopeEntry(projectId: "f\($0)", title: "Folder \($0)", symbol: "folder.fill") }
+    var crowded = SourceScope()
+    crowded.update(Array(many.prefix(10)), uses: ["f9": 4, "f2": 7])
+    check(crowded.listIndexes == Array(0...10), "with ten folders or fewer the list shows All and every one, in the menu's order")
+    check(!crowded.listIsTrimmed, "nothing is left out of a list of ten")
+    crowded.update(many, uses: ["f9": 4, "f2": 7, "f12": 9, "f5": 4, "f7": 1, "f3": 2])
+    check(crowded.listIndexes == [0, 12, 2, 5, 9, 3], "past ten folders it shows All, then the five used most, most used first; ties keep the menu's order")
+    check(crowded.listIsTrimmed, "a trimmed list says so")
+    crowded.update(many, uses: ["f1": 3])
+    check(crowded.listIndexes == [0, 1, 2, 3, 4, 5], "folders never used fill the five in the menu's order")
+    check(crowded.choose(at: 4) && crowded.listIndexes == [0, 1, 2, 3, 4, 5], "uses alone decide the five, not the choice")
+
     let visible = CGRect(x: 0, y: 0, width: 1440, height: 900)
     let size = CGSize(width: 300, height: 44)
     let below = ScopeSwitcherPlacement.frame(caret: CGRect(x: 400, y: 500, width: 2, height: 18), size: size, visible: visible)

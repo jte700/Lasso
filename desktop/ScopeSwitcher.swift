@@ -3,8 +3,9 @@
 // name rising out as the new one rises in. ↓ rolls the pill to its second
 // row, the AI writer a backslash prompt is handed to (WriterChoice.swift),
 // and ↑ back. Return keeps what both rows show and Escape leaves the choices
-// as they were. Keys reach it through KeyRouting.swift, so the writer's app
-// keeps focus throughout.
+// as they were. Holding ⌥Tab grows the pill into a list of the folders
+// (ScopeSwitcherList.swift). Keys reach it through KeyRouting.swift, so the
+// writer's app keeps focus throughout.
 
 import Cocoa
 import SwiftUI
@@ -27,6 +28,8 @@ final class ScopeSwitcherModel: ObservableObject {
     @Published var isCurrent = true
     /// The last roll went forward, so the new name rises from below.
     @Published var forward = true
+    /// The folders as a list, while ⌥Tab is held; nil while the pill shows.
+    @Published var list: ScopeList?
 }
 
 struct ScopeSwitcherView: View {
@@ -69,7 +72,7 @@ struct ScopeSwitcherView: View {
         .padding(.leading, 16)
         .padding(.trailing, 12)
         .frame(height: Self.height)
-        .modifier(ScopeSwitcherSurface())
+        .modifier(ScopeSwitcherSurface(shape: Capsule()))
         .fixedSize()
         .animation(reduceMotion ? .easeOut(duration: 0.15) : .spring(response: 0.34, dampingFraction: 0.8),
                    value: model.entry)
@@ -143,7 +146,7 @@ private struct ScopeRoll: ViewModifier {
 }
 
 /// A folder's symbol in its colour from the Lasso menu; All in the text colour.
-private struct ScopeEntryLabel: View {
+struct ScopeEntryLabel: View {
     let entry: SourceScopeEntry
 
     var body: some View {
@@ -169,20 +172,24 @@ private struct ScopeEntryLabel: View {
 
 /// Liquid Glass on macOS 26, as the suggestion card has; the popover
 /// material with a hairline edge before it, or with Reduce Transparency on.
-private struct ScopeSwitcherSurface: ViewModifier {
+/// A capsule for the pill, a rounded rectangle for the list.
+struct ScopeSwitcherSurface<Outline: InsettableShape>: ViewModifier {
+    var shape: Outline
+
     func body(content: Content) -> some View {
         if #available(macOS 26.0, *), NativeMaterial.usesGlass {
-            content.glassEffect(.regular, in: Capsule())
+            content.glassEffect(.regular, in: shape)
         } else {
             content
-                .background(LoopVisualEffect(material: .popover).clipShape(Capsule()))
-                .overlay(Capsule().strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
+                .background(LoopVisualEffect(material: .popover).clipShape(shape))
+                .overlay(shape.strokeBorder(Color(nsColor: .separatorColor), lineWidth: 0.5))
         }
     }
 }
 
-/// The panel the pill floats in. It never takes focus or clicks, so the
-/// writer's app keeps both; a click anywhere or another app coming forward closes it.
+/// The panel the pill floats in. It never takes focus, so the writer's app
+/// keeps it; the pill takes no clicks, and the list only clicks on its rows.
+/// A click anywhere else or another app coming forward closes it.
 final class ScopeSwitcherController {
     static let shared = ScopeSwitcherController()
 
@@ -202,6 +209,8 @@ final class ScopeSwitcherController {
     private var shadowRefresh: DispatchWorkItem?
     /// Closed by something other than its keys: a click elsewhere or another app.
     var onDismiss: (() -> Void)?
+    /// A row of the list clicked: the folder it shows is chosen.
+    var onChoose: (() -> Void)?
 
     /// Open from ⌥Tab until Return, Escape or a key typed closes it: keys
     /// are the switcher's from the moment it opens, while the caret is still being read.
@@ -214,6 +223,18 @@ final class ScopeSwitcherController {
     private(set) var shownIndex = 0
     /// The writer it shows on its second, as an index into the writers offered.
     private(set) var shownWriterIndex = 0
+    /// The pill has grown into the list of folders.
+    private(set) var isListing = false
+    /// The caret it was last placed by, in AppKit coordinates, so the list grows from the same place.
+    private var anchor: CGRect?
+
+    /// The panel's size for what it shows now.
+    private var size: NSSize {
+        guard let list = model.list else { return Self.panelSize }
+        let height = ScopeListView.height(rows: list.rows.count, hasNote: list.note != nil)
+        return NSSize(width: max(Self.panelSize.width, ScopeListView.width + 2 * Self.margin),
+                      height: height + 2 * Self.margin)
+    }
 
     /// Opens on `entry`, the folder in use, with the writer in use on the
     /// row below. It shows once `present` places it.
@@ -225,7 +246,10 @@ final class ScopeSwitcherController {
             model.row = .folders
             model.entry = entry
             model.isCurrent = isCurrent
+            model.list = nil
         }
+        isListing = false
+        panel?.ignoresMouseEvents = true
         row = .folders
         shownIndex = index
         shownWriterIndex = writerIndex
@@ -238,9 +262,8 @@ final class ScopeSwitcherController {
         guard isOpen else { return }
         let panel = existingPanel()
         let anchor = Self.anchor(for: caret)
-        let screen = NSScreen.screens.first { $0.frame.intersects(anchor.insetBy(dx: -1, dy: -1)) } ?? NSScreen.main
-        panel.setFrame(ScopeSwitcherPlacement.frame(caret: anchor, size: Self.panelSize, margin: Self.margin,
-                                                    visible: screen?.visibleFrame), display: true)
+        self.anchor = anchor
+        place(panel, by: anchor)
         if !isVisible {
             panel.alphaValue = 0
             panel.orderFrontRegardless()
@@ -285,10 +308,53 @@ final class ScopeSwitcherController {
         refreshShadow()
     }
 
+    /// ⌥Tab held: the pill grows into `list`, the highlighted row the one shown.
+    func showList(_ list: ScopeList) {
+        guard isOpen, row == .folders, !isListing, list.rows.indices.contains(list.highlighted) else { return }
+        isListing = true
+        shownIndex = list.rows[list.highlighted].index
+        model.list = list
+        guard let panel else { return }
+        panel.ignoresMouseEvents = false
+        if let anchor { place(panel, by: anchor) }
+        refreshShadow()
+    }
+
+    /// ↑ or ↓ in the list: the highlight moves, going round past either end.
+    func moveInList(by steps: Int) {
+        guard let list = model.list else { return }
+        highlight(list.moved(by: steps))
+    }
+
+    private func highlight(_ list: ScopeList) {
+        guard isListing, list.rows.indices.contains(list.highlighted) else { return }
+        shownIndex = list.rows[list.highlighted].index
+        if model.list != list { model.list = list }
+    }
+
+    private func hover(_ position: Int) {
+        guard var list = model.list else { return }
+        list.highlighted = position
+        highlight(list)
+    }
+
+    private func pick(_ position: Int) {
+        guard isOpen, isListing else { return }
+        hover(position)
+        onChoose?()
+    }
+
+    private func place(_ panel: NSPanel, by anchor: CGRect) {
+        let screen = NSScreen.screens.first { $0.frame.intersects(anchor.insetBy(dx: -1, dy: -1)) } ?? NSScreen.main
+        panel.setFrame(ScopeSwitcherPlacement.frame(caret: anchor, size: size, margin: Self.margin,
+                                                    visible: screen?.visibleFrame), display: true)
+    }
+
     func hide() {
         guard isOpen else { return }
         isOpen = false
         isVisible = false
+        isListing = false
         stopWatching()
         shadowRefresh?.cancel()
         guard let panel else { return }
@@ -359,12 +425,12 @@ final class ScopeSwitcherController {
         created.backgroundColor = .clear
         created.hasShadow = true
         created.hidesOnDeactivate = false
-        created.ignoresMouseEvents = true
+        created.ignoresMouseEvents = !isListing
         created.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
-        let pill = ScopeSwitcherView(model: model)
-            .padding(Self.margin)
-            .frame(width: size.width, height: size.height, alignment: .leading)
-        let hosting = NSHostingView(rootView: AnyView(pill))
+        let root = ScopeSwitcherRoot(model: model, margin: Self.margin,
+                                     pick: { [weak self] in self?.pick($0) },
+                                     hover: { [weak self] in self?.hover($0) })
+        let hosting = ScopeSwitcherHostingView(rootView: root)
         hosting.frame = NSRect(origin: .zero, size: size)
         hosting.autoresizingMask = [.width, .height]
         created.contentView = hosting

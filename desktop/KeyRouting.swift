@@ -42,6 +42,8 @@ struct KeyRoutingState: Equatable {
     var sheetPickerOpen = false
     /// The ⌥Tab switcher is open, and takes Tab, the arrows, Return and Escape.
     var scopeSwitcherOpen = false
+    /// The switcher shows its list of folders, held open by ⌥Tab, where ↑ and ↓ move.
+    var scopeListOpen = false
     /// ⌥Tab opens the switcher: suggestions are on, a folder is switched on,
     /// and the app is not one Lasso stays quiet in.
     var scopeSwitchAvailable = false
@@ -106,6 +108,8 @@ enum KeyAction: Equatable {
     case scopeMove(Int)
     /// ↓ in the switcher shows who writes a prompt; ↑ goes back to where suggestions come from.
     case scopeRow(Int)
+    /// ⌥Tab held down: the switcher shows its folders as a list instead of rolling through them.
+    case scopeHold
     /// Return in the switcher keeps the folder it shows.
     case scopeChoose
     /// Escape, or a shortcut, closes the switcher and leaves the choice as it was.
@@ -138,7 +142,8 @@ enum KeyRouter {
     /// ⌥Tab opens the switcher: Tab accepts a suggestion, ⌥Tab chooses where they come from.
     static let scopeSwitchKey: Int64 = tab
 
-    static func decide(keyCode: Int64, flags: CGEventFlags, synthetic: Bool,
+    /// `repeated` is a key held down, which macOS sends again and again.
+    static func decide(keyCode: Int64, flags: CGEventFlags, synthetic: Bool, repeated: Bool = false,
                        state: KeyRoutingState) -> KeyDecision {
         // Our own synthesized keys are not the user typing.
         if synthetic || state.isInserting { return .pass(nil) }
@@ -148,7 +153,9 @@ enum KeyRouter {
             let bare = flags.intersection([.maskShift, .maskCommand, .maskControl, .maskAlternate]).isEmpty
             return keyCode == escape && bare ? .swallow(.stopWriter) : .pass(nil)
         }
-        if state.scopeSwitcherOpen { return scopeDecision(keyCode, flags: flags) }
+        if state.scopeSwitcherOpen {
+            return scopeDecision(keyCode, flags: flags, repeated: repeated, listing: state.scopeListOpen)
+        }
         if state.scopeSwitchAvailable, keyCode == scopeSwitchKey, flags.contains(.maskAlternate),
            flags.intersection([.maskCommand, .maskControl]).isEmpty,
            !state.passagePickerOpen, !state.sheetPickerOpen, !state.shareComposerOpen, !state.sourceChooserVisible {
@@ -329,14 +336,16 @@ enum KeyRouter {
     /// The switcher keeps the writer's app focused, so its keys come through
     /// here: Tab rolls its row on and ⇧Tab back, ↓ shows the row that chooses
     /// who writes a prompt and ↑ the row of folders again, Return keeps what
-    /// both rows show and Escape what was chosen before. Shortcuts stay the
+    /// both rows show and Escape what was chosen before. Tab held down shows
+    /// the folders as a list, where ↑ and ↓ move instead. Shortcuts stay the
     /// app's; anything typed closes the switcher and goes on to the app.
-    private static func scopeDecision(_ keyCode: Int64, flags: CGEventFlags) -> KeyDecision {
+    private static func scopeDecision(_ keyCode: Int64, flags: CGEventFlags, repeated: Bool, listing: Bool) -> KeyDecision {
         if flags.contains(.maskCommand) || flags.contains(.maskControl) { return .pass(.scopeCancel) }
         switch keyCode {
+        case tab where repeated: return .swallow(.scopeHold)
         case tab: return .swallow(.scopeMove(flags.contains(.maskShift) ? -1 : 1))
-        case down: return .swallow(.scopeRow(1))
-        case up: return .swallow(.scopeRow(-1))
+        case down: return .swallow(listing ? .scopeMove(1) : .scopeRow(1))
+        case up: return .swallow(listing ? .scopeMove(-1) : .scopeRow(-1))
         case returnKey, enter: return .swallow(.scopeChoose)
         case escape: return .swallow(.scopeCancel)
         default: return .pass(.scopeTypedOn)
@@ -460,8 +469,9 @@ final class KeyEventTap {
         if !synthetic, DictationShortcut.isShortcut(keyCode, flags: event.flags) {
             DispatchQueue.main.async(execute: onDictationShortcut)
         }
+        let repeated = event.getIntegerValueField(.keyboardEventAutorepeat) != 0
         let decision = KeyRouter.decide(
-            keyCode: keyCode, flags: event.flags, synthetic: synthetic, state: state.value)
+            keyCode: keyCode, flags: event.flags, synthetic: synthetic, repeated: repeated, state: state.value)
         switch decision {
         case .pass(let action):
             if !synthetic {
