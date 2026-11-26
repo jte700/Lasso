@@ -42,6 +42,10 @@ struct LoopDirectory: Decodable, Identifiable, Equatable {
     /// "folder" for a work directory, "app" for a connected app's items.
     let kind: String
     let symbol: String?
+    /// The connected app's provider, such as "google-drive"; nil for a folder.
+    let provider: String?
+    /// A cloud drive, such as Google Drive, rather than mail, calendars or pages.
+    let cloud: Bool?
     let active: Bool
     let available: Bool
     let offline: Bool

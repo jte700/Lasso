@@ -1,5 +1,6 @@
-// Third-party apps connected to Lasso. Each connection mirrors its items as
-// Markdown into a folder Lasso manages, and that folder is indexed as a
+// Third-party apps connected to Lasso. Each connection mirrors its items
+// into a folder Lasso manages (mail, events and pages as Markdown, files from
+// a drive as the files they are), and that folder is indexed as a
 // project: suggestions, sources, history and the on/off switch all work as
 // they do for a work directory, while the menu lists it with the apps.
 import crypto from 'node:crypto';
@@ -7,9 +8,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { HttpError } from '../history/errors.js';
 import { runSliced } from '../history/work.js';
-import { PROVIDERS, RENDER_VERSION, normalizeSettings, provider, relativePathFor, renderItem } from './providers.js';
+import { PROVIDERS, RENDER_VERSION, normalizeSettings, provider } from './providers.js';
+import { writeItems } from './mirror.js';
+import { folderDriveMethods, readsInPlace } from './folder-drive.js';
+import { fetchGoogleDrive } from './google-drive.js';
 import { OAUTH_APPS, SIGN_IN_TIMEOUT_MS, authorizationUrl, exchangeCode, idTokenClaims, pkcePair,
-  redirectUri, refreshTokens } from './oauth.js';
+  redirectUri, refreshTokens, scopesFor } from './oauth.js';
+import { fetchOneDrive } from './onedrive.js';
+import { dropboxAccount, fetchDropbox } from './dropbox.js';
 import { feedUrl, fetchFeed, fetchGoogleCalendar, fetchNotion, fetchOutlook, nativeEvents, notionAccount,
   outlookAccount } from './fetchers.js';
 
@@ -74,6 +80,8 @@ export class ConnectionService {
     this.syncing = new Map();
     // How far a running sync has got reading the app, before indexing starts.
     this.progress = new Map();
+    // Access being refreshed, by connection, so one refresh serves every request waiting on it.
+    this.refreshing = new Map();
     this.closed = false;
     this.timer = null;
     workspace.connections = this;
@@ -111,9 +119,13 @@ export class ConnectionService {
 
   folderFor(id) { return path.join(this.root, id); }
 
-  /** Whether a project's folder is one of the connections' mirrors. */
+  /** A connection's settings, with anything unknown dropped. */
+  settingsOf(row) { return normalizeSettings(row.provider, JSON.parse(row.settings_json || '{}')); }
+
+  /** Whether a project's folder is one of the connections' mirrors, or a drive connected in place. */
   ownsRoot(rootPath) {
     if (typeof rootPath !== 'string') return false;
+    if (this.inPlaceRoots().includes(rootPath)) return true;
     const root = this.realRoot ??= (() => { try { return fs.realpathSync(this.root); } catch { return null; } })();
     return [this.root, root].some((base) => base && rootPath.startsWith(`${base}${path.sep}`));
   }
@@ -134,18 +146,27 @@ export class ConnectionService {
   describe(projects = []) {
     const byId = new Map(projects.map((project) => [project.id, project]));
     const byRoot = new Map(projects.map((project) => [path.basename(project.rootPath), project]));
+    const byPath = new Map(projects.map((project) => [project.rootPath, project]));
     return this.rows().map((row) => {
       const entry = provider(row.provider);
-      // A folder still being read for the first time is known by its name, the connection's id.
-      const project = byId.get(row.project_id) ?? byRoot.get(row.id) ?? null;
+      const inPlace = readsInPlace(entry);
+      // A folder still being read for the first time is known by its name, the
+      // connection's id, or for a drive read in place by its path.
+      const project = byId.get(row.project_id) ?? (inPlace ? byPath.get(this.rootOf(row)) : byRoot.get(row.id)) ?? null;
       const fetching = this.progress.get(row.id);
       const settings = JSON.parse(row.settings_json || '{}');
       return {
         id: row.id, provider: row.provider, providerName: entry?.name ?? row.provider, symbol: entry?.symbol ?? 'app',
+        // A cloud drive is listed as a cloud connector, with its logo; others as apps.
+        kind: entry?.cloud ? 'cloud' : 'app',
         // Written by an older Lasso: the Mac app reads Calendar again for it.
         outdated: this.outdated(row),
         name: this.title(row), account: row.account, settings,
-        status: row.status, error: row.last_error, itemCount: row.item_count, lastSyncedAt: row.last_synced_at,
+        status: row.status, error: row.last_error, lastSyncedAt: row.last_synced_at,
+        // A drive read in place has as many items as its folder has files.
+        itemCount: inPlace ? project?.fileCount ?? 0 : row.item_count,
+        // Files its cloud drive keeps online alone, which Lasso has not read.
+        ...(project?.onlyInCloud ? { onlyInCloud: project.onlyInCloud } : {}),
         projectId: project?.id ?? row.project_id ?? null,
         // A connection waiting for its first sign-in has nothing to switch yet.
         active: project ? Boolean(project.active) : row.status !== 'error',
@@ -155,6 +176,24 @@ export class ConnectionService {
           ? { kind: 'CONNECTION', message: row.last_error, fix: { label: 'Sync Now' } } : project?.issue ?? null,
       };
     });
+  }
+
+  /**
+   * Where each mirrored item opens in its app, by the file's path on this
+   * Mac: a Google Doc in Docs, a Dropbox file on dropbox.com. The Mac app
+   * opens these instead of the copy here, whose edits would not reach the app.
+   */
+  webLinks() {
+    const links = {};
+    for (const row of this.rows()) {
+      let folder;
+      try { folder = fs.realpathSync(this.folderFor(row.id)); } catch { continue; }
+      const files = JSON.parse(row.sync_state_json || '{}').files ?? {};
+      for (const known of Object.values(files)) {
+        if (/^https:\/\//i.test(known.link ?? '')) links[path.join(folder, known.path)] = known.link;
+      }
+    }
+    return links;
   }
 
   /** Whether the connection's files were written in an earlier format. */
@@ -179,10 +218,12 @@ export class ConnectionService {
       const config = app ? this.appConfig(app.id) : null;
       return {
         ...entry,
-        // Calendar on this Mac is read by the Mac app, not the server.
-        available: entry.auth !== 'native' || native,
+        // Calendar on this Mac is read by the Mac app, not the server; iCloud
+        // Drive is there only on a Mac that has it switched on.
+        available: (entry.auth !== 'native' || native) && this.runsHere(entry)
+          && (!readsInPlace(entry) || Boolean(this.folderRoot(entry))),
         signIn: app ? {
-          app: app.id, appName: app.name, configured: Boolean(config.clientId && (!app.needsSecret || config.clientSecret)),
+          app: app.id, appName: app.name, configured: this.signInReady(app),
           builtIn: config.builtIn, needsSecret: app.needsSecret, setup: app.setup,
           redirectUri: app.registeredRedirect,
         } : null,
@@ -207,6 +248,7 @@ export class ConnectionService {
   async create(input = {}) {
     const entry = provider(input.provider);
     if (!entry) throw new HttpError(400, 'Choose an app to connect.');
+    if (readsInPlace(entry)) return this.connectInPlace(entry, input);
     const settings = normalizeSettings(entry.id, input.settings);
     const id = crypto.randomUUID();
     const insert = (status, account) => {
@@ -221,7 +263,7 @@ export class ConnectionService {
         throw new HttpError(409, `Lasso needs your ${app.name} app registration before you can sign in.`);
       }
       insert('connecting', null);
-      return { connection: this.connection(id), authorizeUrl: this.beginSignIn(id, app, config) };
+      return { connection: this.connection(id), authorizeUrl: this.beginSignIn(id, entry) };
     }
     if (entry.auth === 'token') {
       const token = String(input.token ?? '').trim();
@@ -246,7 +288,9 @@ export class ConnectionService {
   }
 
   /** The browser address that signs a connection in, again if the first was closed. */
-  beginSignIn(id, app, config = this.appConfig(app.id)) {
+  beginSignIn(id, entry) {
+    const app = OAUTH_APPS[entry.oauthApp];
+    const config = this.appConfig(app.id);
     for (const [state, pending] of this.signIns) {
       if (pending.connectionId === id || Date.now() - pending.createdAt > SIGN_IN_TIMEOUT_MS) this.signIns.delete(state);
     }
@@ -254,14 +298,16 @@ export class ConnectionService {
     const { verifier, challenge } = pkcePair();
     const redirect = redirectUri(app, this.config.port);
     this.signIns.set(state, { connectionId: id, app: app.id, verifier, redirect, createdAt: Date.now() });
-    return authorizationUrl(app, { clientId: config.clientId, redirect, state, challenge });
+    // A sign-in asks only for what its provider reads: Drive's sign-in never reaches Calendar.
+    return authorizationUrl(app, { clientId: config.clientId, redirect, state, challenge,
+      scopes: scopesFor(app, entry, this.settingsOf(this.row(id))) });
   }
 
   reauthorize(id) {
     const row = this.row(id);
     const entry = provider(row.provider);
     if (entry?.auth !== 'oauth') throw new HttpError(409, 'This connection does not sign in.');
-    return { connection: this.connection(id), authorizeUrl: this.beginSignIn(id, OAUTH_APPS[entry.oauthApp]) };
+    return { connection: this.connection(id), authorizeUrl: this.beginSignIn(id, entry) };
   }
 
   /** Finishes a sign-in the provider redirected back to this computer. */
@@ -279,14 +325,22 @@ export class ConnectionService {
     }
     const config = this.appConfig(app.id);
     const tokens = await exchangeCode(app, { ...config, code: String(query.code ?? ''), verifier: pending.verifier,
-      redirect: pending.redirect }, this.fetch);
-    const account = row.provider === 'outlook'
-      ? await outlookAccount({ token: tokens.accessToken, fetchImpl: this.fetch })
-      : idTokenClaims(tokens.idToken).email ?? app.name;
+      redirect: pending.redirect, scopes: scopesFor(app, provider(row.provider), this.settingsOf(row)) }, this.fetch);
+    const account = await this.accountName(app, tokens);
     this.credentials.set(row.id, { ...tokens });
     this.update(row.id, { account, status: 'syncing', last_error: null });
     this.sync(row.id).catch(() => {});
     return this.connection(row.id);
+  }
+
+  /** Who signed in, as the menu names the connection. */
+  async accountName(app, tokens) {
+    const context = { token: tokens.accessToken, fetchImpl: this.fetch };
+    switch (app.id) {
+      case 'microsoft': return outlookAccount(context);
+      case 'dropbox': return dropboxAccount(context);
+      default: return idTokenClaims(tokens.idToken).email ?? app.name;
+    }
   }
 
   connection(id) {
@@ -312,14 +366,21 @@ export class ConnectionService {
       error.reauthorize = true;
       throw error;
     }
+    // A refresh token may work only once, so two asking at once share one refresh.
+    const running = this.refreshing.get(row.id);
+    if (running) return running;
     const app = OAUTH_APPS[entry.oauthApp];
-    const tokens = await refreshTokens(app, { ...this.appConfig(app.id), refreshToken: stored.refreshToken }, this.fetch);
-    this.credentials.set(row.id, { ...stored, ...tokens });
-    return tokens.accessToken;
+    const task = refreshTokens(app, { ...this.appConfig(app.id), refreshToken: stored.refreshToken,
+      scopes: scopesFor(app, entry, this.settingsOf(row)) }, this.fetch).then((tokens) => {
+      this.credentials.set(row.id, { ...stored, ...tokens });
+      return tokens.accessToken;
+    }).finally(() => this.refreshing.delete(row.id));
+    this.refreshing.set(row.id, task);
+    return task;
   }
 
   async read(row, state) {
-    const settings = normalizeSettings(row.provider, JSON.parse(row.settings_json || '{}'));
+    const settings = this.settingsOf(row);
     const context = { settings, fetchImpl: this.fetch };
     switch (row.provider) {
       case 'outlook': return fetchOutlook({ ...context, token: await this.accessToken(row) });
@@ -327,6 +388,11 @@ export class ConnectionService {
       // Pages written in an earlier format are read again in full.
       case 'notion': return fetchNotion({ ...context, token: await this.accessToken(row),
         previous: this.outdated(row) ? {} : state.files ?? {}, spacing: this.config.notionSpacingMs });
+      // Downloads wait for the store, so each asks for the access then current.
+      case 'google-drive': return fetchGoogleDrive({ ...context, accessToken: () => this.accessToken(row),
+        previous: state.files ?? {} });
+      case 'onedrive': return fetchOneDrive({ ...context, accessToken: () => this.accessToken(row), previous: state.files ?? {} });
+      case 'dropbox': return fetchDropbox({ ...context, accessToken: () => this.accessToken(row), previous: state.files ?? {} });
       case 'ics': return fetchFeed({ ...context, url: this.credentials.get(row.id)?.url });
       default: throw new HttpError(409, 'The Mac app brings this calendar up to date.');
     }
@@ -347,16 +413,17 @@ export class ConnectionService {
   async runSync(id) {
     let row = this.row(id);
     if (provider(row.provider)?.auth === 'native') throw new HttpError(409, 'The Mac app brings this calendar up to date.');
+    if (readsInPlace(provider(row.provider))) return this.syncInPlace(id);
     if (row.status === 'connecting') throw new HttpError(409, 'Finish signing in first.');
     this.update(id, { status: 'syncing' });
     this.progress.set(id, { percent: 5 });
     try {
       const state = JSON.parse(row.sync_state_json || '{}');
-      const { items } = await this.read(row, state);
+      const { items, partial = false } = await this.read(row, state);
       if (this.closed) return this.connection(id);
       row = this.row(id);
       this.progress.set(id, { percent: 25 });
-      await this.store(row, items, state);
+      await this.store(row, items, state, { partial });
       return this.connection(id);
     } catch (error) {
       if (this.closed) throw error;
@@ -382,50 +449,25 @@ export class ConnectionService {
 
   /**
    * Writes items into the connection's folder, rewriting only files whose
-   * text changed and removing files of items the app no longer has, then
+   * content changed and removing files of items the app no longer has, then
    * indexes the folder, or lets its watcher pick the changes up.
    */
-  async store(row, items, state) {
+  async store(row, items, state, { partial = false } = {}) {
     const entry = provider(row.provider);
     const folder = this.folderFor(row.id);
     fs.mkdirSync(folder, { recursive: true, mode: 0o700 });
-    const previous = state.files ?? {};
-    const files = {};
-    const taken = new Set();
-    let changed = 0;
-    for (const item of items) {
-      const known = previous[item.id];
-      // Notion leaves out the text of a page whose edit is already here.
-      if (item.unchanged && known && fs.existsSync(path.join(folder, known.path))) {
-        files[item.id] = known;
-        taken.add(known.path);
-        continue;
-      }
-      let relative = known?.path && known.title === item.title ? known.path : relativePathFor(item);
-      for (let copy = 2; taken.has(relative); copy++) relative = relativePathFor({ ...item, id: `${item.id}${copy}` });
-      taken.add(relative);
-      const content = renderItem(item, { providerName: entry.name });
-      const target = path.join(folder, relative);
-      let current = null;
-      try { current = fs.readFileSync(target, 'utf8'); } catch { /* new item */ }
-      if (current !== content) {
-        fs.mkdirSync(path.dirname(target), { recursive: true });
-        fs.writeFileSync(target, content);
-        changed++;
-      }
-      if (known && known.path !== relative && !taken.has(known.path)) fs.rmSync(path.join(folder, known.path), { force: true });
-      files[item.id] = { path: relative, title: item.title, edited: item.edited ?? null };
-    }
-    for (const [itemId, known] of Object.entries(previous)) {
-      if (files[itemId] || taken.has(known.path)) continue;
-      fs.rmSync(path.join(folder, known.path), { force: true });
-      changed++;
-    }
+    // Downloading a drive's files fills the bar from a quarter to most of the way.
+    const onProgress = (share) => {
+      if (this.progress.has(row.id)) this.progress.set(row.id, { percent: Math.round(25 + 60 * share) });
+    };
+    // A listing cut short keeps the files it did not reach rather than removing them.
+    const { files, changed } = await writeItems({ folder, items, previous: state.files ?? {}, providerName: entry.name,
+      onProgress, keepMissing: partial });
     // A folder with nothing in it yet still gets its project, so the switch shows.
     if (!items.length && !fs.readdirSync(folder).length) fs.writeFileSync(path.join(folder, 'README.md'),
       `# ${entry.name}\n\nLasso has not found any items to bring in yet.\n`);
     else if (items.length) fs.rmSync(path.join(folder, 'README.md'), { force: true });
-    this.update(row.id, { sync_state_json: JSON.stringify({ files, format: RENDER_VERSION }), item_count: items.length });
+    this.update(row.id, { sync_state_json: JSON.stringify({ files, format: RENDER_VERSION }), item_count: Object.keys(files).length });
     const projectId = await this.ensureProject(this.row(row.id));
     if (changed && projectId && this.workspace.isActive(projectId) && !this.timeline.watchers.has(projectId)) {
       // Without a watcher (as in tests), capture the change now.
@@ -439,15 +481,25 @@ export class ConnectionService {
 
   /** Indexes the connection's folder as a project the first time, and names it. */
   async ensureProject(row) {
-    const folder = fs.realpathSync(this.folderFor(row.id));
+    const root = this.rootOf(row);
+    if (!root) throw new HttpError(409, `${provider(row.provider)?.name ?? 'The folder'} is not on this computer.`);
+    const folder = fs.realpathSync(root);
     const known = this.db.prepare('SELECT id, workspace_removed FROM projects WHERE id = ? OR root_path = ?')
       .get(row.project_id ?? '', folder);
     if (known && !known.workspace_removed) {
-      if (row.project_id !== known.id) this.update(row.id, { project_id: known.id });
+      if (row.project_id !== known.id) {
+        // A folder the person had added themselves is only lent to the drive:
+        // disconnecting gives it back as a work directory, history and all.
+        const adopted = readsInPlace(provider(row.provider)) && !row.project_id;
+        this.update(row.id, { project_id: known.id,
+          ...(adopted ? { sync_state_json: JSON.stringify({ adopted: true }) } : {}) });
+      }
+      this.inPlaceCache = null;
       this.db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(this.title(row), known.id);
       return known.id;
     }
     await this.workspace.add([folder], systemActor);
+    this.inPlaceCache = null;
     const project = this.db.prepare('SELECT id FROM projects WHERE root_path = ?').get(folder);
     if (!project) return null;
     this.db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(this.title(row), project.id);
@@ -474,7 +526,8 @@ export class ConnectionService {
     for (const row of this.rows()) {
       if (this.closed) return;
       const entry = provider(row.provider);
-      if (!entry || entry.auth === 'native' || row.status === 'connecting' || this.syncing.has(row.id)) continue;
+      // Calendar is brought up to date by the Mac app, iCloud Drive by its folder's watcher.
+      if (!entry || entry.auth === 'native' || readsInPlace(entry) || row.status === 'connecting' || this.syncing.has(row.id)) continue;
       if (row.project_id && !this.workspace.isActive(row.project_id)) continue;
       const last = Date.parse(row.last_synced_at ?? '') || 0;
       const wait = row.status === 'error' ? RETRY_AFTER_ERROR_MS : SYNC_INTERVAL_MS;
@@ -492,7 +545,8 @@ export class ConnectionService {
     if (!row.project_id) throw new HttpError(409, 'This connection has not finished its first sync yet.');
     await this.workspace.toggle(row.project_id, active, systemActor);
     // Switched back on after a while off, it reads the app again.
-    if (active && provider(row.provider)?.auth !== 'native'
+    const entry = provider(row.provider);
+    if (active && entry?.auth !== 'native' && !readsInPlace(entry)
       && Date.now() - (Date.parse(row.last_synced_at ?? '') || 0) > SYNC_INTERVAL_MS) this.sync(id).catch(() => {});
     return this.connection(id);
   }
@@ -505,7 +559,12 @@ export class ConnectionService {
     const row = this.row(id);
     for (const [state, pending] of this.signIns) if (pending.connectionId === id) this.signIns.delete(state);
     await this.syncing.get(id)?.catch(() => {});
-    if (row.project_id) {
+    this.inPlaceCache = null;
+    if (row.project_id && JSON.parse(row.sync_state_json || '{}').adopted) {
+      // The folder goes back to the work directories under its own name.
+      const project = this.db.prepare('SELECT root_path FROM projects WHERE id = ?').get(row.project_id);
+      if (project) this.db.prepare('UPDATE projects SET name = ? WHERE id = ?').run(path.basename(project.root_path), row.project_id);
+    } else if (row.project_id) {
       try { await this.workspace.remove(row.project_id); } catch { /* already gone */ }
       try { this.timeline.drives?.removeProjects([row.project_id]); }
       catch (error) {
@@ -515,8 +574,11 @@ export class ConnectionService {
       }
     }
     this.credentials.delete(id);
-    fs.rmSync(this.folderFor(id), { recursive: true, force: true });
+    // A drive read in place keeps every file where it is; only a mirror is Lasso's to remove.
+    if (!readsInPlace(provider(row.provider))) fs.rmSync(this.folderFor(id), { recursive: true, force: true });
     this.db.prepare('DELETE FROM app_connections WHERE id = ?').run(id);
     return this.workspace.state();
   }
 }
+
+Object.assign(ConnectionService.prototype, folderDriveMethods);

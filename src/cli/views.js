@@ -458,7 +458,7 @@ export function renderStatus(summary, paint, columns, { dataDir = null, now = Da
     for (const folder of summary.folders) {
       answer.row(`${paint.accent('■')} ${padEnd(truncate(folder.name, nameWidth), nameWidth)}  ${paint.dim(padStart(count(folder.files), 7))} files  `
         + `${paint.faint(padStart(`v${folder.version ?? 0}`, 6))}  ${paint.dim(folder.lastAt ? `changed ${ago(folder.lastAt, now)}` : '')}  `
-        + paint.faint(truncateStart(tilde(folder.rootPath), 40)));
+        + paint.faint(folder.app ? `${folder.cloud ? 'cloud' : 'app'} · ${folder.app}` : truncateStart(tilde(folder.rootPath), 40)));
     }
   }
   // Lasso records under more than one name of its own; each person is listed once, as the CLI names them.

@@ -577,6 +577,8 @@ final class NativeMenuToggleRow: NSView {
     var onRemove: (() -> Void)?
     /// Replaces Show in Finder and Remove, read when the menu opens; nil is a separator.
     var contextActions: (() -> [RowAction?])?
+    /// Commands shown above Show in Finder in a folder's own menu, such as downloading its cloud files.
+    var extraActions: (() -> [RowAction])?
     private let issueBadge = DirectoryIssueBadge()
     var issue: DirectoryIssue? {
         get { issueBadge.issue }
@@ -685,7 +687,8 @@ final class NativeMenuToggleRow: NSView {
             let icon = NSImageView(frame: NSRect(x: 14, y: 8, width: 16, height: 16))
             self.icon = icon
             icon.image = image
-            icon.contentTintColor = title.textColor
+            // A logo keeps its own colours; a symbol takes the title's.
+            icon.contentTintColor = image.isTemplate ? title.textColor : nil
             icon.setAccessibilityElement(false)
             addSubview(icon)
         }
@@ -824,7 +827,12 @@ final class NativeMenuToggleRow: NSView {
     private func refreshColors() {
         let lit = item.isEnabled || !progressBar.isHidden
         titleLabel.textColor = lit ? .labelColor : .disabledControlTextColor
-        icon?.contentTintColor = titleLabel.textColor
+        if icon?.image?.isTemplate == false {
+            icon?.contentTintColor = nil
+            icon?.alphaValue = lit ? 1 : 0.4
+        } else {
+            icon?.contentTintColor = titleLabel.textColor
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -958,6 +966,10 @@ final class NativeMenuToggleRow: NSView {
             for action in actions { menu.addItem(action.map(RowActionItem.init) ?? .separator()) }
             return menu
         }
+        if let extra = extraActions?(), !extra.isEmpty {
+            for action in extra { menu.addItem(RowActionItem(action)) }
+            menu.addItem(.separator())
+        }
         let reveal = NSMenuItem(title: "Show in Finder", action: #selector(reveal), keyEquivalent: "")
         reveal.target = self
         reveal.isEnabled = !item.title.hasSuffix(" (unavailable)")
@@ -982,53 +994,73 @@ final class NativeMenuToggleRow: NSView {
 final class NativeMenuDisclosureRow: NSView {
     private var item: NSMenuItem
     var actionItem: NSMenuItem { item }
-    private let button: NSButton
+    /// Clear and as wide as the row, so the whole heading is one target for clicks and VoiceOver.
+    private let button = NSButton(title: "", target: nil, action: nil)
+    private let chevron = NSImageView()
+    private let title = NSTextField(labelWithString: "")
     private let total: NSTextField
+    private static let height: CGFloat = 28
+    private static let chevronBox: CGFloat = 12
 
     init(item: NSMenuItem, expanded: Bool, count: Int) {
         self.item = item
-        button = NSButton(title: item.title, target: nil, action: nil)
         total = NSTextField(labelWithString: String(count))
-        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: 28))
+        super.init(frame: NSRect(x: 0, y: 0, width: 260, height: Self.height))
         autoresizingMask = [.width]
-        button.target = self
-        button.action = #selector(activate)
-        button.frame = NSRect(x: 12, y: 3, width: 206, height: 22)
-        button.autoresizingMask = [.width]
-        button.isBordered = false
-        button.alignment = .left
-        button.attributedTitle = NSAttributedString(string: item.title, attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor])
-        button.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right",
-                               accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
-        button.imagePosition = .imageLeading
-        button.imageHugsTitle = true
-        button.contentTintColor = .secondaryLabelColor
-        button.setAccessibilityLabel("\(expanded ? "Collapse" : "Expand") \(item.title)")
-        addSubview(button)
+        chevron.imageScaling = .scaleNone
+        chevron.imageAlignment = .alignCenter
+        chevron.contentTintColor = .secondaryLabelColor
+        chevron.setAccessibilityElement(false)
+        addSubview(chevron)
+        title.font = .systemFont(ofSize: 11, weight: .semibold)
+        title.textColor = .secondaryLabelColor
+        title.lineBreakMode = .byTruncatingTail
+        title.setAccessibilityElement(false)
+        addSubview(title)
         total.font = .systemFont(ofSize: 11)
         total.textColor = .tertiaryLabelColor
         total.alignment = .right
-        total.frame = NSRect(x: 224, y: 7, width: 22, height: 14)
-        total.autoresizingMask = [.minXMargin]
         total.setAccessibilityElement(false)
         addSubview(total)
+        button.target = self
+        button.action = #selector(activate)
+        button.isBordered = false
+        button.isTransparent = true
+        button.frame = bounds
+        button.autoresizingMask = [.width, .height]
+        addSubview(button)
         setAccessibilityElement(false)
+        update(item: item, expanded: expanded, count: count)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(item: NSMenuItem, expanded: Bool, count: Int) {
         self.item = item
-        button.attributedTitle = NSAttributedString(string: item.title, attributes: [
-            .font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor])
-        button.isEnabled = item.isEnabled
-        button.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right",
-                               accessibilityDescription: nil)?
+        chevron.image = NSImage(systemSymbolName: expanded ? "chevron.down" : "chevron.right",
+                                accessibilityDescription: nil)?
             .withSymbolConfiguration(.init(pointSize: 9, weight: .bold))
-        button.setAccessibilityLabel("\(expanded ? "Collapse" : "Expand") \(item.title)")
+        title.stringValue = item.title
+        title.textColor = item.isEnabled ? .secondaryLabelColor : .disabledControlTextColor
         total.stringValue = String(count)
+        button.isEnabled = item.isEnabled
+        button.setAccessibilityLabel("\(expanded ? "Collapse" : "Expand") \(item.title)")
+        needsLayout = true
+    }
+
+    /// The chevron, title and count share the row's centre line, whichever chevron shows.
+    override func layout() {
+        super.layout()
+        let middle = bounds.height / 2
+        let box = Self.chevronBox
+        chevron.frame = NSRect(x: 14, y: (middle - box / 2).rounded(), width: box, height: box)
+        let countSize = total.fittingSize
+        total.frame = NSRect(x: bounds.width - 14 - countSize.width, y: (middle - countSize.height / 2).rounded(),
+                             width: countSize.width, height: countSize.height)
+        let titleHeight = title.fittingSize.height
+        let titleX = chevron.frame.maxX + 6
+        title.frame = NSRect(x: titleX, y: (middle - titleHeight / 2).rounded(),
+                             width: max(0, total.frame.minX - 8 - titleX), height: titleHeight)
     }
 
     override func mouseDown(with event: NSEvent) { activate() }

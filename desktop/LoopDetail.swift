@@ -571,13 +571,12 @@ struct LoopDirectorySummary: View {
     private var summary: some View {
         VStack(spacing: 18) {
             VStack(spacing: 8) {
-                Image(systemName: directory.sidebarSymbol)
-                    .font(.system(size: 26))
+                LassoSymbol(name: directory.sidebarSymbol, size: 26)
                     .foregroundStyle(directory.color)
                     .frame(width: 60, height: 60)
                     .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(directory.color.opacity(0.12)))
                 Text(directory.name).font(.system(size: 18, weight: .semibold)).foregroundStyle(LoopTheme.ink)
-                Text(directory.rootPath).font(LoopTheme.captionFont).foregroundStyle(LoopTheme.secondaryInk)
+                Text(directory.placeText).font(LoopTheme.captionFont).foregroundStyle(LoopTheme.secondaryInk)
                     .textSelection(.enabled).multilineTextAlignment(.center)
             }
             VStack(spacing: 0) {

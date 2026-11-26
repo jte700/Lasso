@@ -1,11 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
-import { createApplication } from '../src/server.js';
 import { parseCalendar, describeRule, parseDate } from '../src/connections/ics.js';
 import { relativePathFor, renderItem } from '../src/connections/providers.js';
+import { application, network, settled } from './fixtures/connections.js';
 
 const day = 86_400_000;
 const stamp = (date) => date.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
@@ -15,40 +14,6 @@ function feed(events, name = 'Site Visits') {
     'BEGIN:VEVENT', `UID:${event.uid}`, `DTSTART:${stamp(event.start)}`, `DTEND:${stamp(event.end ?? event.start)}`,
     `SUMMARY:${event.title}`, ...(event.lines ?? []), 'BEGIN:VALARM', 'DESCRIPTION:Reminder', 'END:VALARM', 'END:VEVENT',
   ]), 'END:VCALENDAR'].join('\r\n');
-}
-
-/** A network that answers from a table of handlers, recording what was asked. */
-function network(routes) {
-  const calls = [];
-  const fetch = async (input, options = {}) => {
-    const url = String(input);
-    calls.push({ url, method: options.method ?? 'GET', headers: options.headers ?? {}, body: options.body });
-    const route = routes.find(([pattern]) => (typeof pattern === 'string' ? url.startsWith(pattern) : pattern.test(url)));
-    if (!route) return new Response(JSON.stringify({ error: { message: `No route for ${url}` } }), { status: 404 });
-    const answer = await route[1](url, options);
-    if (answer instanceof Response) return answer;
-    return new Response(typeof answer === 'string' ? answer : JSON.stringify(answer), {
-      status: 200, headers: { 'content-type': typeof answer === 'string' ? 'text/calendar' : 'application/json' } });
-  };
-  return { fetch, calls };
-}
-
-async function application(t, fetch, overrides = {}) {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lasso-connections-'));
-  const app = createApplication({ dataDir, watchProjects: false, syncConnections: false, notionSpacingMs: 0,
-    connectorApps: {}, fetch, port: 4319, ...overrides });
-  t.after(async () => { await app.close(); fs.rmSync(dataDir, { recursive: true, force: true }); });
-  return { app, dataDir };
-}
-
-async function settled(app, id) {
-  for (let attempt = 0; attempt < 200; attempt++) {
-    await app.connections.syncing.get(id)?.catch(() => {});
-    const connection = app.workspace.state().connections.find((entry) => entry.id === id);
-    if (connection && !['syncing', 'connecting'].includes(connection.status)) return connection;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  throw new Error('The connection did not finish syncing.');
 }
 
 test('reads iCal feeds: folded lines, zones, whole days, repeats and the range asked for', () => {

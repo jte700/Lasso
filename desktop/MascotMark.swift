@@ -49,6 +49,9 @@ struct LassoSymbol: View {
         if name == MascotMark.symbolName {
             MascotMarkShape()
                 .frame(width: size * Self.mascotScale, height: size * Self.mascotScale)
+        } else if let provider = ConnectorLogo.provider(inSymbol: name) {
+            // A cloud drive's logo keeps its own colours, whatever the tint around it.
+            ConnectorLogoView(provider: provider, size: size * Self.mascotScale)
         } else {
             Image(systemName: name).font(.system(size: size, weight: weight))
         }

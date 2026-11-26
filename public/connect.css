@@ -144,6 +144,8 @@ body[data-screen="sheet"] .intro * { pointer-events: none; }
 .glyph svg { width: 70%; height: 70%; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .glyph.outlook { background: #0f6cbd; }
 .glyph.google-calendar { background: #1a73e8; }
+.glyph.google-drive, .glyph.onedrive, .glyph.dropbox, .glyph.icloud { background: #fff; }
+.glyph.google-drive svg *, .glyph.onedrive svg *, .glyph.dropbox svg *, .glyph.icloud svg * { stroke: none; }
 .glyph.apple-calendar { background: #f2f2f2; color: #e5322d; }
 .glyph.notion { background: #fff; color: #191919; }
 .glyph.ics { background: var(--lift); color: var(--ink); }

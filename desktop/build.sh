@@ -307,10 +307,11 @@ cp "$ROOT/desktop/lasso-command.sh" "$RESOURCES/bin/lasso"
 chmod 755 "$RESOURCES/bin/lasso"
 # The app registrations connected apps sign in with, when this build has its
 # own. Without them, the Connect window asks for one the first time.
-if [ -n "${LASSO_MICROSOFT_CLIENT_ID:-}${LASSO_GOOGLE_CLIENT_ID:-}" ]; then
+if [ -n "${LASSO_MICROSOFT_CLIENT_ID:-}${LASSO_GOOGLE_CLIENT_ID:-}${LASSO_DROPBOX_CLIENT_ID:-}" ]; then
   "$NODE_BIN" -e 'require("fs").writeFileSync(process.argv[1], JSON.stringify({
     microsoft: { clientId: process.env.LASSO_MICROSOFT_CLIENT_ID || null },
     google: { clientId: process.env.LASSO_GOOGLE_CLIENT_ID || null, clientSecret: process.env.LASSO_GOOGLE_CLIENT_SECRET || null },
+    dropbox: { clientId: process.env.LASSO_DROPBOX_CLIENT_ID || null },
   }, null, 2))' "$RESOURCES/app/connector-apps.json"
 fi
 

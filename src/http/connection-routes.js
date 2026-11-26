@@ -18,6 +18,9 @@ export async function connectionRoutes({ request, response, url, pathname, conne
       }
     }
     if (connections && pathname.startsWith('/api/connections')) {
+      if (request.method === 'GET' && pathname === '/api/connections/links') {
+        return sendJson(response, 200, { links: connections.webLinks() });
+      }
       if (request.method === 'GET' && pathname === '/api/connections') {
         return sendJson(response, 200, { catalog: connections.catalog({ native: url.searchParams.get('native') === '1' }),
           connections: workspace.state({ pending: true }).connections });

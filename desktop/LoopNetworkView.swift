@@ -481,7 +481,7 @@ struct LoopNetworkHubGlyph: View {
 
     var body: some View {
         if let directory, directory.isApp {
-            Image(systemName: directory.sidebarSymbol).font(.system(size: 13, weight: .medium)).foregroundStyle(color)
+            LassoSymbol(name: directory.sidebarSymbol, size: 13, weight: .medium).foregroundStyle(color)
         } else {
             LoopLucideIcon(icon: .folder, size: 15, color: color)
         }

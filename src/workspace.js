@@ -9,6 +9,7 @@ import { runSliced, runSync } from './history/work.js';
 import { directoryIssue, directoryNote } from './directory-issues.js';
 import { workspacePredictionMethods } from './workspace-prediction.js';
 import { workspaceTerminalMethods } from './workspace-terminal.js';
+import { workspaceCloudMethods } from './workspace-cloud.js';
 import { distinctRanked, tag } from './workspace-ranking.js';
 
 const systemActor = { id: 'system:workspace', displayName: 'Lasso', actorType: 'SYSTEM' };
@@ -184,9 +185,12 @@ export class WorkspaceService {
     }
     // Connected apps are indexed as folders Lasso manages. They answer
     // suggestions like any directory but are listed with the apps.
-    const connected = directories.filter((p) => this.connections?.ownsRoot(p.rootPath));
-    return { directories: directories.filter((p) => !connected.includes(p)),
+    const counted = directories.map((directory) => this.withCloudCount(directory));
+    const connected = counted.filter((p) => this.connections?.ownsRoot(p.rootPath));
+    return { directories: counted.filter((p) => !connected.includes(p)),
       connections: this.connections?.describe(connected) ?? [], revision: this.revision(),
+      // The cloud drives the menu offers to connect, connected or not.
+      cloudDrives: this.connections?.cloudOffers() ?? [],
       projectUses: this.projectUses(),
       activeProjectIds: directories.filter((p) => p.active && p.available && !p.error && p.serving).map((p) => p.id) };
   }
@@ -611,7 +615,7 @@ export class WorkspaceService {
 }
 
 // Prediction and the terminal live in their own files.
-Object.assign(WorkspaceService.prototype, workspacePredictionMethods, workspaceTerminalMethods);
+Object.assign(WorkspaceService.prototype, workspacePredictionMethods, workspaceTerminalMethods, workspaceCloudMethods);
 
 // Kept here too for code that imports it from the workspace.
 export { distinctRanked };

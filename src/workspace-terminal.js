@@ -7,6 +7,11 @@ import { parseCommand } from './terminal/parser.js';
 import { failure, result, text, blank, dim } from './terminal/result.js';
 import { tag, distinctRanked } from './workspace-ranking.js';
 
+/** How a result names where it came from: a folder by its path, a connected app by its name alone. */
+function placeOf(workspace, project) {
+  return workspace.connections?.ownsRoot(project.rootPath) ? project.name : `${project.name} · ${project.rootPath}`;
+}
+
 export const workspaceTerminalMethods = {
   terminalSession() {
     const sessions = this.activeProjects().map((p) => this.terminal.executor.banner(p.id));
@@ -147,7 +152,7 @@ export const workspaceTerminalMethods = {
       if (found.length === 1) {
         const { project, answer } = found[0];
         const tagged = this.tagTerminal(answer, project);
-        return { ...tagged, subhead: tagged.subhead ?? `${project.name} · ${project.rootPath}`,
+        return { ...tagged, subhead: tagged.subhead ?? placeOf(this, project),
           blocks: [...tagged.blocks, ...(note.length ? [blank(), ...note] : [])],
           data: { ...answer.data, projects: answers.map(({ project: each, answer: { data } }) => ({ projectId: each.id, ...data })) } };
       }
@@ -163,7 +168,7 @@ export const workspaceTerminalMethods = {
   mergeTerminal(command, answers) {
     return { ...result(command.name), ok: answers.some((a) => a.answer.ok),
       headline: `${command.name} · ${answers.length} work directories`,
-      blocks: answers.flatMap(({ project, answer }) => [text(`${project.name} · ${project.rootPath}`),
+      blocks: answers.flatMap(({ project, answer }) => [text(placeOf(this, project)),
         ...(answer.headline ? [text(answer.headline, answer.ok ? 'normal' : 'warn')] : []), ...answer.blocks, blank()]),
       results: answers.flatMap(({ project, answer }) => this.tagTerminal(answer, project).results),
       actions: [...new Map(answers.flatMap(({ answer }) => answer.actions).map((a) => [a.key, a])).values()],

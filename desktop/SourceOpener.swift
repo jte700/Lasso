@@ -17,6 +17,8 @@ enum AssistSourceOpener {
     /// could not open the file itself.
     static func open(_ fileURL: URL, at target: AssistOpenTarget?) -> Bool {
         let workspace = NSWorkspace.shared
+        // A file from a cloud drive or other connected app opens on its own page there.
+        if let web = ConnectedSourceLinks.webURL(for: fileURL), workspace.open(web) { return true }
         // A text source no app claims, such as LandXML or STEP on a Mac without
         // CAD software, opens in the Mac's text editor instead of failing.
         let textEditor = workspace.urlForApplication(toOpen: fileURL) == nil && isText(fileURL)
