@@ -505,6 +505,15 @@
   function initServiceWorker() {
     const secure = location.protocol === 'https:'; // the trial copy skips the offline cache on localhost
     if (!secure || !('serviceWorker' in navigator)) return;
+    // A page an older worker answered may be out of date: when the new worker takes over, show the current page once.
+    if (navigator.serviceWorker.controller) {
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
+    }
     navigator.serviceWorker.register('/sw.js').catch((err) => console.warn('Lasso site: offline cache not installed', err));
   }
 
