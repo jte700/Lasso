@@ -19,8 +19,8 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/autocomplete-dark.webp">
-    <img src="website/assets/media/autocomplete-light.webp" width="560" alt="Typing 'Q3 actual operating revenue was 4' in a memo brings up a Lasso card offering 4.82 from forecast_2026.xlsx, with cell D12 highlighted in its sheet">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/autocomplete-dark.gif">
+    <img src="docs/images/autocomplete-light.gif" width="560" alt="Typing 'Q3 actual operating revenue was 4' in a memo brings up a Lasso card showing 4.82 from forecast_2026.xlsx with its row highlighted; Tab inserts 4.82 as a linked value">
   </picture>
   <br><sub>Start typing a figure and Lasso finds the cell it came from. <code>Tab</code> inserts it with a link back to that version of the file.</sub>
 </p>
@@ -88,8 +88,8 @@ A suggestion only appears when your words match words in the file itself, and an
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/writer-dark.webp">
-    <img src="website/assets/media/writer-light.webp" width="560" alt="An email to Priya written from the prompt '\Write an email about the income tax expense', with 5,200, 3,200 and 2,000 linked to the statement they came from">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/writer-dark.gif">
+    <img src="docs/images/writer-light.gif" width="560" alt="In a new email, the user types '\Write an email about the income tax expense', a 'Write with ChatGPT' pill appears, Lasso looks up income tax expense, and the email writes itself with 5,200, 3,200 and 2,000 linked to their source">
   </picture>
   <br><sub>A <code>\</code> prompt becomes a finished email, with each figure linked to the statement it came from.</sub>
 </p>
@@ -127,8 +127,8 @@ Press `⌥Tab` to narrow suggestions to one folder or connected app. They stay n
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="website/assets/media/loop-dark.webp">
-    <img src="website/assets/media/loop-light.webp" width="560" alt="The Loop's Recent Changes log: a row for Q3 operating revenue in forecast_2026.xlsx opens to show the value going from 4.82 to 4.86 and the gross profit and gross margin cells it recalculated">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/loop-dark.gif">
+    <img src="docs/images/loop-light.gif" width="560" alt="The Loop's Recent Changes log: a row for Q3 operating revenue in forecast_2026.xlsx opens to show the value going from 4.82 to 4.86 and the gross profit and gross margin cells it recalculated">
   </picture>
   <br><sub>Recent Changes opens each edit in place: the cells that were typed into first, then the formulas they recalculated.</sub>
 </p>
