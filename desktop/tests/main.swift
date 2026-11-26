@@ -4308,6 +4308,21 @@ do {
     check(!gate.end(), "dismissing the box drops a follow-up that would reopen it")
 }
 
+print("the card follows the caret a frame after each key")
+do {
+    var follow = CaretFollowTiming()
+    let start = Date(timeIntervalSinceReferenceDate: 2000)
+    check(follow.keyArrived(at: start) == CaretFollowTiming.echo,
+          "a key reads the caret once the app has drawn it, not before")
+    check(follow.keyArrived(at: start.addingTimeInterval(0.01)) == CaretFollowTiming.echo,
+          "a quick second key waits for its own caret too")
+    let late = follow.keyArrived(at: start.addingTimeInterval(0.045))
+    check(abs(late - 0.005) < 0.0001, "keys that keep coming never hold the card back past the longest wait")
+    follow.read()
+    check(follow.keyArrived(at: start.addingTimeInterval(0.2)) == CaretFollowTiming.echo,
+          "after a read the next key starts its wait over")
+}
+
 print("a list the writer types past without a new answer closes")
 do {
     var typing = UnansweredTyping(limit: 0.5)
