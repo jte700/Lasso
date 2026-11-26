@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="760" height="404" viewBox="0 0 760 404" role="img" aria-labelledby="t d">
 <title id="t">How Lasso works</title>
-<desc id="d">The app you write in sends the text before the caret to the Lasso Mac app, which asks a local Node.js index server for suggestions and renders ghost text, the suggestion card, cell and passage pickers, source pills and The Loop. The server watches your folders, USB drives and connected apps locally in SQLite, exposes an MCP server for AI agents, and runs an optional AI writer only when you trigger a backslash prompt.</desc>
+<desc id="d">The app you write in sends the text before the caret to the Lasso Mac app, which asks a local Node.js index server for suggestions and renders ghost text, the suggestion card, cell and passage pickers, source pills and The Loop. The server watches your folders, USB drives, cloud drives and connected apps locally in SQLite, exposes an MCP server for AI agents, and runs an optional AI writer only when you trigger a backslash prompt.</desc>
 <style>
   .surface { fill: #fffdf7; stroke: #e3dfd2; }
   .box { fill: #f7f5ed; stroke: #d8d4c6; stroke-width: 1.2; }
@@ -71,8 +71,8 @@
 <text x="262" y="353" class="line">Backslash prompts with citations</text>
 
 <rect class="box" x="504" y="294" width="222" height="72" rx="12"/>
-<text x="518" y="317" class="head">Your local sources</text>
-<text x="518" y="336" class="line">Watched folders &amp; USB drives</text>
+<text x="518" y="317" class="head">Your sources</text>
+<text x="518" y="336" class="line">Folders, USB &amp; cloud drives</text>
 <text x="518" y="353" class="line">Outlook, Calendar &amp; Notion (opt-in)</text>
 
 <path class="arrow" d="M166,150 H246" marker-end="url(#arrowhead)"/>
