@@ -89,6 +89,7 @@
 .ficon { --size: 26px; position: relative; flex: none; width: var(--size); height: calc(var(--size) * 1.18); border-radius: calc(var(--size) * .14) calc(var(--size) * .3) calc(var(--size) * .14) calc(var(--size) * .14);
   background: linear-gradient(180deg, #fbfbfb, #e9e9ea); box-shadow: inset 0 0 0 1px rgb(0 0 0 / .1), 0 1px 2px rgb(0 0 0 / .2); }
 .ficon i { position: absolute; left: -12%; bottom: 10%; min-width: 62%; padding: 0 3px; height: 46%; border-radius: 3px; display: grid; place-items: center; background: var(--ft); color: #fff; font: 700 calc(var(--size) * .3)/1 var(--sans); font-style: normal; letter-spacing: -.02em; }
+.ficon-play { width: 1.1em; height: 1.1em; display: block; }
 .ficon--lg { --size: 36px; }
 .ficon--sm { --size: 18px; }
 

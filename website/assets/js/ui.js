@@ -70,7 +70,9 @@
     };
   }
 
-  /* File-type tiles, drawn like the system icons at a glance: a coloured mark on a page. */
+  /* File-type tiles, drawn like the system icons at a glance: a coloured mark on a page. A video's
+     mark is a drawn triangle, never a character a phone could show as an emoji. */
+  const PLAY_MARK = '<svg class="ficon-play" viewBox="0 0 10 10" aria-hidden="true"><path d="M3 1.8v6.4L8.2 5z" fill="currentColor"/></svg>';
   const KINDS = {
     xlsx: { mark: 'X', tone: '#1f8a4c', label: 'Excel' },
     xls: { mark: 'X', tone: '#1f8a4c', label: 'Excel' },
@@ -78,13 +80,13 @@
     pdf: { mark: 'PDF', tone: '#d1453b', label: 'PDF' },
     docx: { mark: 'W', tone: '#2b65c9', label: 'Word' },
     pptx: { mark: 'P', tone: '#d0612e', label: 'PowerPoint' },
-    mov: { mark: '▶', tone: '#6e56cf', label: 'Video' },
+    mov: { mark: '', svg: PLAY_MARK, tone: '#6e56cf', label: 'Video' },
     md: { mark: 'MD', tone: '#6b7280', label: 'Text' },
     usb: { mark: '', tone: '#6b7280', label: 'Drive' },
   };
   const fileIcon = (kind, size = 'md') => {
     const k = KINDS[kind] || KINDS.md;
-    return `<span class="ficon ficon--${size}" style="--ft:${k.tone}" aria-hidden="true"><i>${esc(k.mark)}</i></span>`;
+    return `<span class="ficon ficon--${size}" style="--ft:${k.tone}" aria-hidden="true"><i>${k.svg || esc(k.mark)}</i></span>`;
   };
   const kindLabel = (kind) => (KINDS[kind] || KINDS.md).label;
 

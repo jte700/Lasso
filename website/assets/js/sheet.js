@@ -42,7 +42,18 @@
       const aimedAt = target;
       setTimeout(() => { if (frame && target === aimedAt && Math.abs(position - target) > 0.5) { cancelAnimationFrame(frame); settle(); } }, SETTLE_FALLBACK_MS);
     };
-    const open = () => { if (!dialog.open) dialog.showModal(); target = 1; run(); };
+    /* Opening a modal dialog focuses its first control. In the menu that is a link, which would wear
+       a focus ring and scroll the closed sheet into view before it rises. The panel holds focus
+       instead; a form field the browser chose keeps it. */
+    panel.tabIndex = -1;
+    const open = () => {
+      if (!dialog.open) {
+        dialog.showModal();
+        if (!document.activeElement?.matches('input, textarea, select')) panel.focus({ preventScroll: true });
+        dialog.scrollTop = 0;
+      }
+      target = 1; run();
+    };
     const close = () => { target = 0; run(); };
 
     // Escape, and the back gesture on Android, ask the dialog to cancel: answer with the animated close.
