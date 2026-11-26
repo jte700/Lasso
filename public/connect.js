@@ -14,6 +14,7 @@
   const bridge = window.webkit?.messageHandlers?.lasso ?? null;
   const still = matchMedia('(prefers-reduced-motion: reduce)');
   const apps = document.getElementById('apps');
+  const stage = document.getElementById('stage');
   const state = { catalog: [], connections: [], icons: {}, screen: null, polling: null };
 
   // ---------- plumbing ----------
@@ -76,7 +77,8 @@
 
   // ---------- the headline ----------
 
-  const WORDS = ['Calendar', 'Outlook', 'Notion', 'Google Calendar'];
+  // Each word names a card, which glows while the word shows.
+  const WORDS = ['Google Drive', 'Outlook', 'Dropbox', 'Notion', 'iCloud Drive', 'Google Calendar', 'OneDrive', 'Calendar'];
   const word = document.getElementById('word');
   const letters = word.querySelector('.letters');
   const measure = h('span', { class: 'letters', style: 'position:absolute;visibility:hidden;left:0;top:0', 'aria-hidden': 'true' });
@@ -192,7 +194,7 @@
     letters.getAnimations().forEach((animation) => animation.cancel());
   }
 
-  // Calendar → Outlook → Notion → Google Calendar → Calendar, each change its own.
+  // Each change of word is drawn its own way, in turn.
   const TRANSITIONS = [drop, lasso, typed, roll];
 
   async function runCycle(token) {
@@ -200,7 +202,8 @@
       await wait(2300);
       if (cycle.token !== token) return;
       const from = WORDS[cycle.index], next = (cycle.index + 1) % WORDS.length, to = WORDS[next];
-      try { await (still.matches ? fade : TRANSITIONS[cycle.index])(from, to); }
+      lightApp(to);
+      try { await (still.matches ? fade : TRANSITIONS[cycle.index % TRANSITIONS.length])(from, to); }
       catch { setWidth(to); spell(to); }
       cycle.index = next;
     }
@@ -310,7 +313,17 @@
   // For apps not installed on this Mac: a plain symbol, as System Settings shows.
   const GLYPHS = {
     outlook: '<svg viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2.5"/><path d="m3.8 7 8.2 6 8.2-6"/></svg>',
-    'google-calendar': '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>',
+    // Google Calendar's own tile: blue, a little pinched at the waist, a pale top edge and a white 31.
+    'google-calendar': '<svg viewBox="0 0 64 64"><defs>'
+      + '<clipPath id="gcal-tile"><path d="M14 2h36c7 0 11 3 11.5 10 .5 8-2.5 14-2.5 20s3 12 2.5 20C61 59 57 62 50 62H14C7 62 3 59 2.5 52 2 44 5 38 5 32S2 20 2.5 12C3 5 7 2 14 2z"/></clipPath>'
+      + '<linearGradient id="gcal-top" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7aa8f8"/><stop offset="1" stop-color="#64a1f8"/></linearGradient>'
+      + '<linearGradient id="gcal-bottom" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#71adf9"/><stop offset="1" stop-color="#5a9af7"/></linearGradient>'
+      + '<radialGradient id="gcal-glow" cx=".5" cy="0" r=".6"><stop offset="0" stop-color="#b9b4fb"/><stop offset="1" stop-color="#b9b4fb" stop-opacity="0"/></radialGradient>'
+      + '</defs><g clip-path="url(#gcal-tile)">'
+      + '<rect width="64" height="32" style="fill:url(#gcal-top)"/><rect y="32" width="64" height="32" style="fill:url(#gcal-bottom)"/>'
+      + '<rect width="64" height="34" style="fill:url(#gcal-glow)"/><rect width="64" height="7" style="fill:#d2e8fd"/></g>'
+      + '<path transform="translate(2 0)" style="fill:none;stroke:#fff;stroke-width:5;stroke-linecap:round;stroke-linejoin:round" '
+      + 'd="M16 23.5c1.5-3 4.5-4.5 7.5-4.5 4.3 0 7 2.6 7 6.3s-2.9 6.2-7 6.2H22m1.5 0c4.7 0 7.7 2.8 7.7 7.1S27.9 46 23.5 46c-3.5 0-6.5-1.7-8-4.8M38 23.5l6.5-4V46"/></svg>',
     'apple-calendar': '<svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M3.5 9.5h17M8 3v4M16 3v4"/></svg>',
     // Cloud drives are drawn as their own logos, as the Mac app draws them (ConnectorLogo.swift).
     'google-drive': '<svg viewBox="0 0 24 24"><path style="fill:#00ac47" d="M8.67 4 12 9.8 5.33 20.4 2 14.8z"/>'
@@ -357,24 +370,68 @@
 
   const button = (label, onclick, kind = '') => h('button', { class: `btn ${kind}`.trim(), type: 'button', onclick }, label);
 
-  /** Each app's icon and name, with Connect, or Manage once it is connected. */
+  // Apps that bring in mail, events and pages, then the cloud drives whose files come in as files.
+  const APP_GROUPS = [
+    { id: 'apps', title: 'Apps', detail: 'Mail, calendars and notes', fits: (entry) => !entry.cloud },
+    { id: 'cloud', title: 'Cloud Services', detail: 'Files from your drives', fits: (entry) => Boolean(entry.cloud) },
+  ];
+  // The mascot's colours, handed out across every card in turn so the two groups differ.
+  const TINTS = ['sky', 'lime', 'rope', 'sage', 'terracotta', 'cream'];
+  const CARD_STAGGER = 0.04;
+  const CARD_STAGGER_LAST = 8;
+
+  /** The connectors in their groups, Apps first, leaving out a group with nothing in it. */
+  function groupedCatalog() {
+    return APP_GROUPS
+      .map((group) => ({ ...group, entries: state.catalog.filter(group.fits) }))
+      .filter((group) => group.entries.length);
+  }
+
+  /** Each group's heading over its own row of cards. */
   function renderApps() {
     const focused = document.activeElement?.closest?.('.app')?.dataset.provider;
-    apps.replaceChildren(...state.catalog.map((entry) => {
-      const mine = state.connections.filter((connection) => connection.provider === entry.id);
-      const note = !entry.available ? { text: 'Mac app only' } : appNote(mine);
-      const open = () => openSheet(mine.length ? { name: 'provider', provider: entry.id } : flowStart(entry.id));
-      return h('div', { class: 'app', role: 'listitem', 'data-provider': entry.id },
-        icon(entry.id),
-        h('span', { class: 'app-name' }, entry.name),
-        h('span', { class: `app-note${note?.bad ? ' bad' : ''}` }, note?.text ?? ''),
-        h('button', { class: 'btn', type: 'button', disabled: !entry.available, onclick: open,
-          'aria-label': `${mine.length ? 'Manage' : 'Connect'} ${entry.name}` }, mine.length ? 'Manage…' : 'Connect'));
+    let index = 0;
+    apps.replaceChildren(...groupedCatalog().map((group) => {
+      const heading = `apps-${group.id}`;
+      return h('section', { class: 'app-group', 'aria-labelledby': heading },
+        h('h2', { class: 'app-group-title', id: heading }, group.title, h('span', { class: 'app-group-detail' }, group.detail)),
+        h('div', { class: 'app-row', role: 'list', 'aria-label': group.title },
+          group.entries.map((entry) => appCard(entry, index++))));
     }));
     // They rise in the first time only.
-    if (state.appsShown) for (const app of apps.children) app.style.animation = 'none';
+    if (state.appsShown) for (const app of apps.querySelectorAll('.app')) app.style.animation = 'none';
     state.appsShown = true;
+    lightApp(WORDS[cycle.index]);
     if (focused) apps.querySelector(`[data-provider="${focused}"] .btn`)?.focus();
+  }
+
+  /** One app's icon and name, with Connect, or Manage once it is connected. */
+  function appCard(entry, index) {
+    const mine = state.connections.filter((connection) => connection.provider === entry.id);
+    const note = !entry.available ? { text: 'Mac app only' } : appNote(mine);
+    const open = () => openSheet(mine.length ? { name: 'provider', provider: entry.id } : flowStart(entry.id));
+    const on = mine.some((connection) => connection.active && connection.status !== 'error');
+    const look = `--tint: var(--${TINTS[index % TINTS.length]}); animation-delay: ${Math.min(index, CARD_STAGGER_LAST) * CARD_STAGGER}s`;
+    return h('div', { class: `app${on ? ' on' : ''}`, role: 'listitem', style: look, 'data-provider': entry.id, 'data-name': entry.name },
+      icon(entry.id),
+      h('span', { class: 'app-name' }, entry.name),
+      h('span', { class: `app-note${note?.bad ? ' bad' : ''}` }, note?.text ?? ''),
+      h('button', { class: 'btn', type: 'button', disabled: !entry.available, onclick: open,
+        'aria-label': `${mine.length ? 'Manage' : 'Connect'} ${entry.name}` }, mine.length ? 'Manage…' : 'Connect'));
+  }
+
+  /**
+   * The card the headline names glows, and the page's light takes its colour.
+   * A name that matches no card leaves the page as it was.
+   */
+  function lightApp(name) {
+    let lit = null;
+    for (const app of apps.querySelectorAll('.app')) {
+      app.classList.toggle('lit', app.dataset.name === name);
+      if (app.dataset.name === name) lit = app;
+    }
+    const tint = lit && getComputedStyle(lit).getPropertyValue('--tint').trim();
+    if (tint) stage.style.setProperty('--look', tint);
   }
 
   /** A word under the name only when there is something to say. */
@@ -837,6 +894,13 @@
   window.lassoConnect = { refresh: () => poll(), start };
   const asked = new URLSearchParams(location.search).get('connect');
 
+  // The dots under the pointer light up, as on The Loop's opening card.
+  stage.addEventListener('pointermove', (event) => {
+    stage.style.setProperty('--mx', `${event.clientX}px`);
+    stage.style.setProperty('--my', `${event.clientY}px`);
+    stage.classList.add('pointing');
+  });
+  stage.addEventListener('pointerleave', () => stage.classList.remove('pointing'));
 
   setWidth(WORDS[0]);
   // Figtree arrives after the first measure; the word's box is measured again in it.
