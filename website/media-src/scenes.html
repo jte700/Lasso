@@ -220,7 +220,7 @@ const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&l
 const set = (el, styles) => Object.assign(el.style, styles);
 const fade = (el, o, dy = 0, s = 1) => set(el, { opacity: o, transform: `translateY(${dy}px) scale(${s})` });
 const icon = (label, color, size = 34) => `<span class="ficon" style="--ft:${color};--size:${size}px"><i>${label}</i></span>`;
-const KIND = { xlsx: ['X', '#1f8a4c'], csv: ['CSV', '#2f8f5b'], pdf: ['PDF', '#d1453b'], docx: ['W', '#2b65c9'], pptx: ['P', '#d0612e'], mov: ['▶', '#6e56cf'], step: ['3D', '#6b7280'] };
+const KIND = { xlsx: ['X', '#1f8a4c'], csv: ['CSV', '#2f8f5b'], pdf: ['PDF', '#d1453b'], docx: ['W', '#2b65c9'], pptx: ['P', '#d0612e'], mov: ['<svg viewBox="0 0 10 10" style="width:1.1em;height:1.1em;display:block"><path d="M3 1.8v6.4L8.2 5z" fill="currentColor"/></svg>', '#6e56cf'], step: ['3D', '#6b7280'] };
 const fileIcon = (kind, size) => icon(KIND[kind][0], KIND[kind][1], size);
 const LIGHTS = '<i class="lights"><b></b><b></b><b></b></i>';
 /* a string of words, some linked: "Revenue was [4.82] million" */
@@ -306,7 +306,7 @@ SCENES.share = {
       <div class="doc"><p class="mute">Unit 4 lease, for the meeting with Martin.</p>
         <p>Under clause 12.3, notice to renew is <span class="lk">six months’ written notice</span> before expiry.<span id="tail"></span><span class="caret"></span></p></div>
     </div>
-    <div id="keys" class="row" style="position:absolute;left:0;right:0;top:600px;justify-content:center;gap:14px"><span class="kc">⇧</span><span class="kc">⌘</span><span class="kc">↩</span></div>
+    <div id="keys" class="row" style="position:absolute;left:0;right:0;top:600px;justify-content:center;gap:14px"><span class="kc">⇧</span><span class="kc">⌘</span><span class="kc">↵</span></div>
     <div class="menu" id="sheet" style="left:110px;top:300px;width:780px;padding:26px">
       <div class="row" style="gap:16px">${fileIcon('pdf', 40)}<div><div style="font-size:24px;font-weight:600">lease_unit4_signed.pdf</div><div style="font-size:18px;color:var(--ink-3)">Share a private link</div></div></div>
       <div style="display:grid;grid-template-columns:1fr 250px;gap:22px;margin-top:22px">
@@ -324,7 +324,7 @@ SCENES.share = {
       <div class="row" style="justify-content:flex-end;margin-top:22px;gap:12px"><span class="btn">Cancel</span><span class="btn blue" id="make">Create link</span></div>
     </div>
     <div class="win" id="browser" style="left:250px;top:430px;width:820px;height:640px">
-      <div class="bar" style="justify-content:flex-start;padding-left:120px">${LIGHTS}<span style="flex:1;margin-right:40px;height:38px;border-radius:10px;background:var(--raise);display:flex;align-items:center;justify-content:center;font-weight:500;color:var(--ink-2)">🔒 mylasso.ca/d/Q3n8x2</span></div>
+      <div class="bar" style="justify-content:flex-start;padding-left:120px">${LIGHTS}<span style="flex:1;margin-right:40px;height:38px;border-radius:10px;background:var(--raise);display:flex;align-items:center;justify-content:center;font-weight:500;color:var(--ink-2)"><svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" style="margin-right:7px;opacity:.75"><rect x="3" y="7" width="10" height="7.5" rx="1.8"/><path d="M5.2 7V5.2a2.8 2.8 0 0 1 5.6 0V7" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>mylasso.ca/d/Q3n8x2</span></div>
       <div style="padding:26px 40px">
         <div class="row" style="justify-content:space-between;font-size:18px;color:var(--ink-3)"><span>Shared from Lasso · redacted copy</span><span>Expires in 48 hours</span></div>
         <div style="margin-top:18px;border-radius:14px;background:#fff;color:#1d1d1f;box-shadow:0 0 0 1px rgb(0 0 0 / .1);padding:28px 32px;font-size:19px;line-height:1.6">
@@ -666,7 +666,7 @@ SCENES.scope = {
       <div class="sw-line"><span>Suggest from</span><span class="sw-seg">All</span><span class="sw-seg">Accounting</span><span class="sw-seg on">Halden Ltd</span><span class="sw-seg">Board</span></div>
       <div class="sw-line"><span>Write with</span><span class="sw-seg">None</span><span class="sw-seg on"><i class="spark"></i>ChatGPT</span></div>
     </div>
-    <div class="row" style="position:absolute;left:110px;top:560px;gap:18px;font-size:18px;color:var(--ink-3)"><span class="row" style="gap:8px"><span class="kc sm">⇥</span>next</span><span class="row" style="gap:8px"><span class="kc sm">↩</span>keep</span><span class="row" style="gap:8px"><span class="kc sm">↓</span>writer</span></div>`;
+    <div class="row" style="position:absolute;left:110px;top:560px;gap:18px;font-size:18px;color:var(--ink-3)"><span class="row" style="gap:8px"><span class="kc sm">⇥</span>next</span><span class="row" style="gap:8px"><span class="kc sm">↵</span>keep</span><span class="row" style="gap:8px"><span class="kc sm">↓</span>writer</span></div>`;
   },
 };
 
@@ -681,7 +681,7 @@ SCENES.keys = {
       ${cell(['fn', '⇥'], 'Fn Tab', 'Highlight cells, paste them')}
       ${cell(['⌥', '⇥'], 'Option Tab', 'Choose where from')}
       ${cell(['\\', '⇥'], 'Backslash, Tab', 'Hand it to the writer')}
-      ${cell(['⇧', '⌘', '↩'], 'Shift Command Return', 'Share it as a link')}
+      ${cell(['⇧', '⌘', '↵'], 'Shift Command Return', 'Share it as a link')}
       ${cell(['esc'], 'Escape', 'Dismiss, keep typing')}
     </div>`;
   },
