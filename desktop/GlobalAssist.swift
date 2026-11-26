@@ -395,6 +395,7 @@ final class GlobalAssistant {
             sheetPickable: view.mode == .suggestions && view.wordChoice == nil && currentSuggestion?.sheetPickable == true,
             sheetPickerOpen: SheetPickerController.shared.isVisible,
             scopeSwitcherOpen: ScopeSwitcherController.shared.isOpen,
+            scopeListOpen: ScopeSwitcherController.shared.isListing,
             scopeSwitchAvailable: scopeSwitchAvailable,
             writerPromptReady: writerPromptReady, writerWorking: writer.session != nil)
     }
@@ -509,6 +510,8 @@ final class GlobalAssistant {
             followTextChange(trackCaret: false)
         case .scopeRow(let steps):
             switchScopeRow(by: steps)
+        case .scopeHold:
+            holdScopeSwitcher()
         case .writePrompt, .dismissWriterPrompt, .stopWriter:
             performWriterKey(action)
         }

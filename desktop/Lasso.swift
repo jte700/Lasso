@@ -1110,7 +1110,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         workspaceError = nil
         let activeIds = state["activeProjectIds"] as? [String]
             ?? directories.filter { $0.active && $0.available && ($0.error ?? "").isEmpty }.map(\.id)
-        GlobalAssistant.shared.updateSourceScope(sourceScopeEntries())
+        let uses = (state["projectUses"] as? [String: Any] ?? [:]).compactMapValues { ($0 as? NSNumber)?.intValue }
+        GlobalAssistant.shared.updateSourceScope(sourceScopeEntries(), uses: uses)
         GlobalAssistant.shared.updateWorkspace(projectIds: activeIds, revision: workspaceRevision)
         rebuildMenu()
         welcomeIfNeeded()

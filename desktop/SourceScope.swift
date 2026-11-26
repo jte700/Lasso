@@ -17,13 +17,46 @@ struct SourceScopeEntry: Equatable {
 }
 
 struct SourceScope: Equatable {
+    /// Past this many switched-on folders and apps, the held ⌥Tab list shows only the most used.
+    static let fullListLimit = 10
+    /// How many it shows then.
+    static let mostUsedCount = 5
+
     /// All first, then the switched-on folders and apps in the menu's order.
     private(set) var entries: [SourceScopeEntry] = [.all]
     /// The folder suggestions come from alone; nil for All.
     private(set) var chosenProjectId: String?
+    /// Suggestions accepted from each folder, by project id, as the server counts them.
+    private(set) var uses: [String: Int] = [:]
 
     var chosen: SourceScopeEntry { entries.first { $0.projectId == chosenProjectId } ?? .all }
     var chosenIndex: Int { entries.firstIndex { $0.projectId == chosenProjectId } ?? 0 }
+
+    /// The rows the held ⌥Tab list shows, as indexes into `entries`: All, then
+    /// every folder in the menu's order or, past ten, the five used most, most
+    /// used first, ties in the menu's order.
+    var listIndexes: [Int] {
+        let folders = Array(entries.indices.dropFirst())
+        guard folders.count > Self.fullListLimit else { return Array(entries.indices) }
+        let used = folders.enumerated().sorted { first, second in
+            let a = uses[entries[first.element].projectId ?? ""] ?? 0
+            let b = uses[entries[second.element].projectId ?? ""] ?? 0
+            return a != b ? a > b : first.offset < second.offset
+        }
+        return [0] + used.prefix(Self.mostUsedCount).map(\.element)
+    }
+
+    /// The list leaves folders out, which ⌥Tab pressed again still rolls through.
+    var listIsTrimmed: Bool { entries.count - 1 > Self.fullListLimit }
+
+    /// The folders switched on now, and how often each was used. A chosen one
+    /// that is no longer switched on, or no longer there, goes back to All.
+    /// Returns whether it did.
+    @discardableResult
+    mutating func update(_ folders: [SourceScopeEntry], uses: [String: Int]) -> Bool {
+        self.uses = uses
+        return update(folders)
+    }
 
     /// The folders switched on now. A chosen one that is no longer switched
     /// on, or no longer there, goes back to All. Returns whether it did.

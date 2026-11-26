@@ -266,6 +266,23 @@ test('workspace browsing prefers recent use across roots before older frequent u
   assert.ok(objects.some((object) => object.projectId === sourceProject.id));
 });
 
+test('the workspace state counts the suggestions accepted from each folder', (t) => {
+  // Arrange
+  const { app, sourceProject, otherProject } = fixture(t);
+  for (const session of ['a', 'b', 'c']) {
+    app.dependencies.recordRecommendationUsage(sourceProject.id, { path: 'data.csv', kind: 'accept', sessionId: session });
+  }
+  app.dependencies.recordRecommendationUsage(otherProject.id, { path: 'data.csv', kind: 'accept', sessionId: 'a' });
+  app.dependencies.recordRecommendationUsage(otherProject.id, { path: 'data.csv', kind: 'open', sessionId: 'b' });
+
+  // Act
+  const { projectUses } = app.workspace.state();
+
+  // Assert
+  assert.equal(projectUses[sourceProject.id], 3);
+  assert.equal(projectUses[otherProject.id], 1, 'a source only opened is not counted as used');
+});
+
 test('natural terminal questions query every enabled work directory', (t) => {
   const { app, otherProject } = fixture(t);
   const answer = app.workspace.terminalRun('what is 900?', actor);

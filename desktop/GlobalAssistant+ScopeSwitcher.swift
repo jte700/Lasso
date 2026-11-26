@@ -3,7 +3,8 @@
 // one it shows until All is chosen again, that folder is switched off, or
 // Lasso quits. Meanwhile the card's footer names it beside ⌥⇥. ↓ shows the
 // switcher's second row, the AI writer a backslash prompt is handed to, which
-// Return keeps too, from one launch to the next.
+// Return keeps too, from one launch to the next. Holding ⌥Tab shows the
+// folders as a list to pick from with the arrows or a click.
 
 import Cocoa
 
@@ -16,12 +17,12 @@ extension GlobalAssistant {
         return SuggestionApps.shared.allows(app)
     }
 
-    /// The switched-on folders and apps, from the Lasso menu's last reading.
-    /// A chosen one switched off goes back to All; the menu's own update then
-    /// asks for suggestions again.
-    func updateSourceScope(_ folders: [SourceScopeEntry]) {
+    /// The switched-on folders and apps, from the Lasso menu's last reading,
+    /// with how often each was used. A chosen one switched off goes back to
+    /// All; the menu's own update then asks for suggestions again.
+    func updateSourceScope(_ folders: [SourceScopeEntry], uses: [String: Int]) {
         let before = sourceScope.entries
-        sourceScope.update(folders)
+        sourceScope.update(folders, uses: uses)
         showScopeOnCard()
         // The pill's place in a list that changed under it no longer means the same folder.
         if before != sourceScope.entries { ScopeSwitcherController.shared.hide() }
@@ -38,6 +39,10 @@ extension GlobalAssistant {
         dismiss()
         let switcher = ScopeSwitcherController.shared
         switcher.onDismiss = { [weak self] in self?.publishKeyRouting() }
+        switcher.onChoose = { [weak self] in
+            self?.chooseShownScope()
+            self?.publishKeyRouting()
+        }
         let index = sourceScope.chosenIndex
         switcher.open(sourceScope.entries[index], index: index, isCurrent: true, writerIndex: writer.choice.chosenIndex)
         if let known { switcher.present(at: known) }
@@ -55,6 +60,7 @@ extension GlobalAssistant {
     func rollScopeSwitcher(by steps: Int) {
         let switcher = ScopeSwitcherController.shared
         guard switcher.isOpen else { return }
+        if switcher.isListing { return switcher.moveInList(by: steps) }
         switch switcher.row {
         case .folders:
             let index = sourceScope.index(from: switcher.shownIndex, by: steps)
@@ -65,6 +71,20 @@ extension GlobalAssistant {
             switcher.roll(to: writer.choice.entries[index].scopeEntry, index: index, forward: steps > 0,
                           isCurrent: index == writer.choice.chosenIndex)
         }
+    }
+
+    /// ⌥Tab held on the folders: the pill grows into their list, highlighting
+    /// the folder it showed, or All when that one is not among the five used most.
+    func holdScopeSwitcher() {
+        let switcher = ScopeSwitcherController.shared
+        guard switcher.isOpen, switcher.row == .folders, !switcher.isListing else { return }
+        let indexes = sourceScope.listIndexes
+        let chosen = sourceScope.chosenIndex
+        let rows = indexes.map { ScopeListRow(index: $0, entry: sourceScope.entries[$0], isChosen: $0 == chosen) }
+        let note = sourceScope.listIsTrimmed
+            ? ScopeList.trimmedNote(shown: indexes.count - 1, of: sourceScope.entries.count - 1) : nil
+        let highlighted = indexes.firstIndex(of: switcher.shownIndex) ?? 0
+        switcher.showList(ScopeList(rows: rows, highlighted: highlighted, note: note))
     }
 
     /// ↓ shows who writes a prompt, on the writer that row last showed; ↑ goes
